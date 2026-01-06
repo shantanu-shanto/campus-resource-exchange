@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
+use Illuminate\Validation\Rules\Password;
+
 use Illuminate\View\View;
 
 class RegisteredUserController extends Controller
@@ -31,8 +33,17 @@ class RegisteredUserController extends Controller
     {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'email' => [
+                'required', 
+                'string', 
+                'email', 
+                'max:255', 
+                'unique:users',
+                'regex:/.*@online\.bits-pilani\.ac\.in$/'
+            ],
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ], [
+            'email.regex' => 'Please use your official BITS Pilani email (@online.bits-pilani.ac.in).'
         ]);
 
         $user = User::create([
@@ -45,6 +56,7 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        return redirect(route('dashboard', absolute: false));
+        return redirect(RouteServiceProvider::HOME);
     }
+
 }
