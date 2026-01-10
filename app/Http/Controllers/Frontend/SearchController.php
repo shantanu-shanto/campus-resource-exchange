@@ -29,7 +29,7 @@ class SearchController extends Controller
 
         // Start with available items
         $itemsQuery = Item::query()->with([
-            'owner:id,name,profile_image',
+            'owner:id,name',
             'ratings'
         ])->available();
 
@@ -87,7 +87,7 @@ class SearchController extends Controller
         ];
 
         $itemsQuery = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available();
 
         // Title search
@@ -163,7 +163,6 @@ class SearchController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
-                'profile_image' => $user->profile_image,
                 'avg_rating' => round($user->averageRating(), 2),
                 'items_count' => $user->items_count,
                 'url' => route('frontend.profile.show', $user),
@@ -218,7 +217,7 @@ class SearchController extends Controller
 
         // This is a placeholder - extend Item model with category field
         $items = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available()
             ->where('title', 'like', "%{$category}%")
             ->paginate(12);
@@ -234,7 +233,7 @@ class SearchController extends Controller
         $minRating = $request->get('min_rating', 3);
 
         $items = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available()
             ->whereHas('owner', function($q) use ($minRating) {
                 $q->withAvg('ratingsReceived', 'rating')
@@ -253,7 +252,7 @@ class SearchController extends Controller
         $timeframe = $request->get('timeframe', '30'); // days
 
         $items = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available()
             ->withCount('ratings')
             ->withAvg('ratings', 'rating')
@@ -272,7 +271,7 @@ class SearchController extends Controller
         $days = $request->get('days', '7');
 
         $items = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available()
             ->where('created_at', '>=', now()->subDays($days))
             ->orderBy('created_at', 'desc')
@@ -322,7 +321,7 @@ class SearchController extends Controller
         $similarOwnerIds = $userTransactions->pluck('item.user_id')->unique();
 
         $items = Item::query()
-            ->with(['owner:id,name,profile_image', 'ratings'])
+            ->with(['owner:id,name', 'ratings'])
             ->available()
             ->whereIn('user_id', $similarOwnerIds)
             ->whereNotIn('id', $userTransactions->pluck('item_id'))

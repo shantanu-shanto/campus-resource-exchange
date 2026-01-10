@@ -57,8 +57,8 @@
                         <div class="card h-100">
                             <!-- Item Image -->
                             <div style="height: 180px; background: linear-gradient(135deg, #e7f1ff 0%, #f0f4ff 100%); display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #dee2e6;">
-                                @if ($item->image_path)
-                                    <img src="{{ asset('storage/' . $item->image_path) }}" alt="{{ $item->title }}"
+                                @if ($item['image_path'])
+                                    <img src="{{ asset('storage/' . $item['image_path']) }}" alt="{{ $item['title'] }}"
                                         style="max-width: 100%; max-height: 100%; object-fit: cover;">
                                 @else
                                     <i class="bi bi-image" style="font-size: 3rem; color: #0d6efd; opacity: 0.3;"></i>
@@ -68,12 +68,12 @@
                             <div class="card-body">
                                 <!-- Badges -->
                                 <div class="mb-2">
-                                    @if ($item->status === 'available')
+                                    @if ($item['status'] === 'available')
                                         <span class="badge bg-success">Available</span>
                                     @endif
-                                    @if ($item->availability_mode === 'lend')
+                                    @if ($item['availability_mode'] === 'lend')
                                         <span class="badge bg-info">Lend</span>
-                                    @elseif ($item->availability_mode === 'sell')
+                                    @elseif ($item['availability_mode'] === 'sell')
                                         <span class="badge bg-danger">Sell</span>
                                     @else
                                         <span class="badge bg-primary">Both</span>
@@ -82,23 +82,31 @@
 
                                 <!-- Title -->
                                 <h5 class="card-title" style="color: #333; font-weight: 600;">
-                                    {{ Str::limit($item->title, 25) }}
+                                    {{ Str::limit($item['title'], 25) }}
                                 </h5>
 
                                 <!-- Owner -->
                                 <small class="text-muted d-block mb-3">
-                                    <i class="bi bi-person"></i> {{ $item->owner->name }}
+                                    <i class="bi bi-person"></i> {{ $item['owner']->name }}
                                 </small>
 
                                 <!-- Price -->
-                                @if ($item->price)
+                                @if ($item['price'])
                                     <div style="color: #0d6efd; font-weight: 700; margin-bottom: 10px;">
-                                        ৳{{ $item->price }}
+                                        ৳{{ $item['price'] }}
                                     </div>
                                 @endif
 
+                                <!-- Ratings -->
+                                <div class="mb-2">
+                                    <small class="text-warning">
+                                        <i class="bi bi-star-fill"></i> {{ $item['avg_rating'] }} 
+                                        <span class="text-muted">({{ $item['total_ratings'] }} reviews)</span>
+                                    </small>
+                                </div>
+
                                 <!-- View Button -->
-                                <a href="{{ route('frontend.items.show', $item) }}" class="btn btn-primary w-100 btn-sm">
+                                <a href="{{ $item['url'] }}" class="btn btn-primary w-100 btn-sm">
                                     View Item
                                 </a>
                             </div>
