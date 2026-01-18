@@ -80,12 +80,17 @@
 
     <!-- Owner & Action Right -->
     <div class="col-lg-5">
-        <!-- Owner Card -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <i class="bi bi-person"></i> Lender Information
-            </div>
-            <div class="card-body">
+
+
+    <!-- Owner & Action Right -->
+<div class="col-lg-5">
+    <!-- Owner Card -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-person"></i> Lender Information
+        </div>
+        <div class="card-body">
+            @if ($item->owner)
                 <div style="display: flex; gap: 15px; margin-bottom: 20px;">
                     <i class="bi bi-person-circle" style="font-size: 3rem; color: #0d6efd;"></i>
                     <div style="flex: 1;">
@@ -95,8 +100,8 @@
                         <small class="text-muted">{{ $item->owner->email }}</small>
                         <div style="margin-top: 10px;">
                             <i class="bi bi-star-fill" style="color: #ffc107;"></i>
-                            <strong>{{ round($item->owner->averageRating(), 1) }} / 5.0</strong>
-                            <small class="text-muted">({{ $item->owner->ratingsReceived->count() }} ratings)</small>
+                            <strong>{{ number_format($item->owner->averageRating(), 1) }} / 5.0</strong>
+                            <small class="text-muted">({{ $item->owner->ratingsReceived?->count() ?? 0 }} ratings)</small>
                         </div>
                     </div>
                 </div>
@@ -105,13 +110,13 @@
                     <div class="col-6">
                         <small class="text-muted">Items Listed</small>
                         <h6 style="color: #333; font-weight: 700; margin: 5px 0;">
-                            {{ $item->owner->items->count() }}
+                            {{ $item->owner->items?->count() ?? 0 }}
                         </h6>
                     </div>
                     <div class="col-6">
                         <small class="text-muted">Member Since</small>
                         <h6 style="color: #333; font-weight: 700; margin: 5px 0;">
-                            {{ $item->owner->created_at->format('M Y') }}
+                            {{ $item->owner->created_at?->format('M Y') ?? 'N/A' }}
                         </h6>
                     </div>
                 </div>
@@ -119,8 +124,16 @@
                 <a href="{{ route('frontend.profile.show', $item->owner) }}" class="btn btn-outline-primary w-100">
                     <i class="bi bi-eye"></i> View Profile
                 </a>
-            </div>
+            @else
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> <strong>Owner information unavailable</strong>
+                    <p class="mb-0 mt-2">The item owner's profile is no longer available.</p>
+                </div>
+            @endif
         </div>
+    </div>
+
+        
 
         <!-- Action Card -->
         <div class="card mb-4">

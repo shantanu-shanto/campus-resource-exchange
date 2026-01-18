@@ -19,7 +19,7 @@ class TransactionController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        
+
         // Get transactions where user is borrower
         $borrowerTransactions = Transaction::where('borrower_id', $user->id)
             ->with(['item:id,title,user_id', 'item.owner:id,name,email', 'ratings'])
@@ -30,23 +30,44 @@ class TransactionController extends Controller
         $ownerTransactions = Transaction::whereHas('item', function($q) use ($user) {
             $q->where('user_id', $user->id);
         })
-            ->with(['item:id,title,user_id', 'borrower:id,name,email', 'ratings'])
-            ->latest()
-            ->get();
+        ->with(['item:id,title,user_id', 'borrower:id,name,email', 'ratings'])
+        ->latest()
+        ->get();
+
+        // Combine all transactions
+        $allTransactions = $borrowerTransactions->concat($ownerTransactions)
+            ->sortByDesc('created_at');
+
+        // Get status filter
+        $status = $request->get('status');
 
         // Filter by status if requested
-        $status = $request->get('status');
         if ($status) {
-            $borrowerTransactions = $borrowerTransactions->where('status', $status);
-            $ownerTransactions = $ownerTransactions->where('status', $status);
+            $allTransactions = $allTransactions->where('status', $status);
         }
 
-        return view('frontend.transactions.index', compact(
-            'borrowerTransactions',
-            'ownerTransactions',
-            'status'
-        ));
+        // Calculate counts
+        $allCount = $allTransactions->count();
+        $pendingCount = $allTransactions->where('status', 'pending')->count();
+        $activeCount = $allTransactions->where('status', 'active')->count();
+        $completedCount = $allTransactions->where('status', 'completed')->count();
+        $lateCount = $allTransactions->where('status', 'late')->count();
+        $cancelledCount = $allTransactions->where('status', 'cancelled')->count();
+
+        return view('frontend.transactions.index', [
+            'allTransactions' => $allTransactions,
+            'borrowerTransactions' => $borrowerTransactions,
+            'ownerTransactions' => $ownerTransactions,
+            'allCount' => $allCount,
+            'pendingCount' => $pendingCount,
+            'activeCount' => $activeCount,
+            'completedCount' => $completedCount,
+            'lateCount' => $lateCount,
+            'cancelledCount' => $cancelledCount,
+            'status' => $status,
+        ]);
     }
+
 
     /**
      * Show detailed view of a specific transaction

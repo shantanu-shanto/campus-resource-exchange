@@ -22,8 +22,8 @@ class MessageController extends Controller
         $conversations = Conversation::where('user_id_1', $user->id)
             ->orWhere('user_id_2', $user->id)
             ->with([
-                'user1:id,name,profile_image',
-                'user2:id,name,profile_image',
+                'user1:id,name',
+                'user2:id,name',
                 'lastMessage'
             ])
             ->orderByDesc('updated_at')
@@ -66,7 +66,7 @@ class MessageController extends Controller
 
         // Load messages with pagination
         $messages = $conversation->messages()
-            ->with('sender:id,name,profile_image')
+            ->with('sender:id,name')
             ->latest()
             ->paginate(20);
 
@@ -81,21 +81,33 @@ class MessageController extends Controller
 
         $unreadCount = 0; // Just marked as read
 
-        return view('frontend.messages.show', compact(
-            'conversation',
-            'otherUser',
-            'messages',
-            'unreadCount'
-        ));
+        return view('frontend.messages.show', [
+            'conversation' => $conversation,
+            'user' => $otherUser,
+            'messages' => $messages,
+            'unreadCount' => $unreadCount,
+        ]);
+
     }
 
     /**
      * Start new conversation or get existing one
      */
-    public function startConversation(User $otherUser)
+    /**
+     * Start new conversation or get existing one
+     */
+    public function startConversation($userId)
     {
         $user = Auth::user();
-
+        
+        // Get the other user
+        $otherUser = User::find($userId);
+        
+        // Validate other user exists
+        if (!$otherUser) {
+            return redirect()->back()->with('error', 'User not found.');
+        }
+        
         // Cannot message self
         if ($user->id === $otherUser->id) {
             return redirect()->back()
@@ -105,23 +117,24 @@ class MessageController extends Controller
         // Find or create conversation
         $conversation = Conversation::where(function($q) use ($user, $otherUser) {
             $q->where('user_id_1', $user->id)
-              ->where('user_id_2', $otherUser->id);
+                ->where('user_id_2', $otherUser->id);
         })
-            ->orWhere(function($q) use ($user, $otherUser) {
-                $q->where('user_id_1', $otherUser->id)
-                  ->where('user_id_2', $user->id);
-            })
-            ->first();
+        ->orWhere(function($q) use ($user, $otherUser) {
+            $q->where('user_id_1', $otherUser->id)
+                ->where('user_id_2', $user->id);
+        })
+        ->first();
 
         if (!$conversation) {
             $conversation = Conversation::create([
                 'user_id_1' => $user->id,
-                'user_id_2' => $otherUser->id,
+                'user_id_2' => $otherUser->id,  // Now guaranteed to have a value
             ]);
         }
 
         return redirect()->route('frontend.messages.show', $conversation);
     }
+
 
     /**
      * Send message in conversation
@@ -257,8 +270,8 @@ class MessageController extends Controller
         $conversations = Conversation::where('user_id_1', $user->id)
             ->orWhere('user_id_2', $user->id)
             ->with([
-                'user1:id,name,profile_image',
-                'user2:id,name,profile_image',
+                'user1:id,name',
+                'user2:id,name',
                 'lastMessage'
             ])
             ->get()
@@ -284,8 +297,8 @@ class MessageController extends Controller
         $conversations = Conversation::where('user_id_1', $user->id)
             ->orWhere('user_id_2', $user->id)
             ->with([
-                'user1:id,name,profile_image',
-                'user2:id,name,profile_image',
+                'user1:id,name',
+                'user2:id,name',
                 'lastMessage'
             ])
             ->orderByDesc('updated_at')
@@ -306,7 +319,7 @@ class MessageController extends Controller
                     'other_user' => [
                         'id' => $otherUser->id,
                         'name' => $otherUser->name,
-                        'profile_image' => $otherUser->profile_image,
+                        // Removed: 'profile_image' => $otherUser->profile_image,
                     ],
                     'last_message' => $conversation->lastMessage ? [
                         'message' => $conversation->lastMessage->message,
@@ -318,6 +331,7 @@ class MessageController extends Controller
 
         return response()->json($conversations);
     }
+
 
     /**
      * Get conversation messages (JSON API for AJAX loading)
@@ -332,7 +346,7 @@ class MessageController extends Controller
         $perPage = 20;
 
         $messages = $conversation->messages()
-            ->with('sender:id,name,profile_image')
+            ->with('sender:id,name')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage, ['*'], 'page', $page);
 
