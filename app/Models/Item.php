@@ -248,7 +248,7 @@ class Item extends Model
 
     public function getFormattedPriceAttribute(): string
     {
-        return $this->price ? '৳' . number_format($this->price, 2) : 'Free';
+        return $this->price ? 'INR' . number_format($this->price, 2) : 'Free';
     }
 
     public function getImageUrlAttribute(): string
