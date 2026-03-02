@@ -4,16 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Rating extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'transaction_id',
         'rater_id',
@@ -21,11 +17,6 @@ class Rating extends Model
         'comment',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -54,48 +45,62 @@ class Rating extends Model
     }
 
     /**
-     * The borrower of this transaction (for owner ratings)
+     * The borrower of the transaction — through transaction
      */
     public function borrower()
     {
-        return $this->belongsTo(User::class, 'borrower_id')->via('transaction');
+        return $this->hasOneThrough(
+            User::class,
+            Transaction::class,
+            'id',             // FK on transactions
+            'id',             // FK on users
+            'transaction_id', // local key on ratings
+            'borrower_id'     // local key on transactions
+        );
     }
 
     /**
-     * The owner of the item (for borrower ratings)
+     * The owner/lender of the transaction — through transaction using owner_id
      */
     public function owner()
     {
-        return $this->belongsTo(User::class, 'user_id')->via('transaction.item');
+        return $this->hasOneThrough(
+            User::class,
+            Transaction::class,
+            'id',
+            'id',
+            'transaction_id',
+            'owner_id'        // direct owner_id column on transactions
+        );
     }
 
     /**
-     * The item being rated (through transaction)
+     * The item being rated — through transaction
      */
     public function item()
     {
-        return $this->belongsTo(Item::class, 'item_id')->via('transaction');
+        return $this->hasOneThrough(
+            Item::class,
+            Transaction::class,
+            'id',
+            'id',
+            'transaction_id',
+            'item_id'
+        );
     }
 
     // ========================================
-    // Scope Methods
+    // Scopes
     // ========================================
 
-    /**
-     * Scope: Ratings for a specific user (received ratings)
-     */
     public function scopeForUser($query, User $user)
     {
-        return $query->whereHas('transaction.item', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })->orWhereHas('transaction', function ($q) use ($user) {
-            $q->where('borrower_id', $user->id);
+        return $query->whereHas('transaction', function ($q) use ($user) {
+            $q->where('owner_id', $user->id)
+              ->orWhere('borrower_id', $user->id);
         });
     }
 
-    /**
-     * Scope: Ratings for a specific item
-     */
     public function scopeForItem($query, Item $item)
     {
         return $query->whereHas('transaction', function ($q) use ($item) {
@@ -103,68 +108,61 @@ class Rating extends Model
         });
     }
 
-    /**
-     * Scope: Ratings with comments
-     */
     public function scopeWithComments($query)
     {
         return $query->whereNotNull('comment')->where('comment', '!=', '');
     }
 
-    /**
-     * Scope: High ratings (4-5 stars)
-     */
     public function scopeHighRatings($query)
     {
         return $query->where('rating', '>=', 4);
     }
 
-    /**
-     * Scope: Low ratings (1-2 stars)
-     */
     public function scopeLowRatings($query)
     {
         return $query->where('rating', '<=', 2);
     }
 
     // ========================================
-    // Helper Methods
+    // Type Helpers
     // ========================================
 
     /**
-     * Check if rating is excellent (5 stars)
+     * True if the rater is the borrower (rating the owner)
      */
-    public function isExcellent(): bool
+    public function isBorrowerRating(): bool
     {
-        return $this->rating === 5;
+        return $this->rater_id === $this->transaction->borrower_id;
     }
 
     /**
-     * Check if rating is poor (1 star)
+     * True if the rater is the owner (rating the borrower)
      */
-    public function isPoor(): bool
+    public function isOwnerRating(): bool
     {
-        return $this->rating === 1;
+        return $this->rater_id === $this->transaction->owner_id;
     }
 
-    /**
-     * Get rating as emoji for UI
-     */
-    public function getEmojiAttribute(): string
+    // ========================================
+    // Validation Helpers
+    // ========================================
+
+    public static function canRateTransaction(Transaction $transaction): bool
     {
-        return match($this->rating) {
-            5 => '⭐⭐⭐⭐⭐',
-            4 => '⭐⭐⭐⭐',
-            3 => '⭐⭐⭐',
-            2 => '⭐⭐',
-            1 => '⭐',
-            default => '⭐'
-        };
+        return in_array($transaction->status, ['completed', 'late']);
     }
 
-    /**
-     * Get rating label
-     */
+    public static function userHasRatedTransaction(User $user, Transaction $transaction): bool
+    {
+        return self::where('transaction_id', $transaction->id)
+            ->where('rater_id', $user->id)
+            ->exists();
+    }
+
+    // ========================================
+    // Display Helpers
+    // ========================================
+
     public function getRatingLabel(): string
     {
         return match($this->rating) {
@@ -173,86 +171,28 @@ class Rating extends Model
             3 => 'Good',
             2 => 'Poor',
             1 => 'Very Poor',
-            default => 'Unknown'
+            default => 'Unknown',
         };
     }
 
-    /**
-     * Get rating badge color
-     */
     public function getRatingBadgeColor(): string
     {
         return match($this->rating) {
-            4, 5 => 'green',
-            3 => 'blue',
-            2 => 'yellow',
-            1 => 'red',
-            default => 'gray'
+            4, 5 => 'success',
+            3    => 'info',
+            2    => 'warning',
+            1    => 'danger',
+            default => 'secondary',
         };
     }
 
-    /**
-     * Check if this is a borrower rating (rating the owner)
-     */
-    public function isBorrowerRating(): bool
+    public function getEmojiAttribute(): string
     {
-        return $this->rater_id === $this->transaction->borrower_id;
+        return str_repeat('⭐', $this->rating);
     }
 
-    /**
-     * Check if this is an owner rating (rating the borrower)
-     */
-    public function isOwnerRating(): bool
+    public function getPreviewAttribute(): string
     {
-        return $this->rater_id === $this->transaction->item->user_id;
-    }
-
-    /**
-     * Get who was rated (borrower or owner)
-     */
-    public function ratedUser(): User
-    {
-        return $this->isBorrowerRating() 
-            ? $this->owner() 
-            : $this->borrower();
-    }
-
-    /**
-     * Check if rating can be created for this transaction
-     * (Transaction must be completed or late)
-     */
-    public static function canRateTransaction(Transaction $transaction): bool
-    {
-        return in_array($transaction->status, ['completed', 'late']);
-    }
-
-    /**
-     * Prevent duplicate ratings for same transaction/user
-     */
-    public static function userHasRatedTransaction(User $user, Transaction $transaction): bool
-    {
-        return self::where('transaction_id', $transaction->id)
-            ->where('rater_id', $user->id)
-            ->exists();
-    }
-
-    /**
-     * Get user's average rating as rater
-     */
-    public static function userAverageRating(User $user): float
-    {
-        return self::where('rater_id', $user->id)->avg('rating') ?? 0.0;
-    }
-
-    /**
-     * Get formatted rating display
-     */
-    public function getDisplayAttribute(): string
-    {
-        $emoji = $this->emoji;
-        $label = $this->rating_label;
-        $comment = $this->comment ? '"' . Str::limit($this->comment, 50) . '"' : '';
-        
-        return "{$emoji} {$label} {$comment}";
+        return Str::limit($this->comment ?? '', 60);
     }
 }

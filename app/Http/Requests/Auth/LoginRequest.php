@@ -1,5 +1,13 @@
 <?php
 
+// app/Http/Requests/Auth/LoginRequest.php
+//
+// FIX: Removed hardcoded regex '/.*@online\.bits-pilani\.ac\.in$/'
+// that was blocking all non-BITS emails from logging in.
+// The shared login is used by uni_admin and regular users only.
+// Super admin has their own controller (SuperAdminSessionController)
+// and does NOT go through this request class.
+
 namespace App\Http\Requests\Auth;
 
 use Illuminate\Auth\Events\Lockout;
@@ -21,21 +29,16 @@ class LoginRequest extends FormRequest
 
     /**
      * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     * Only basic email format check — no DNS, no domain restriction.
+     * Domain validation is handled at registration time, not login time.
      */
     public function rules(): array
     {
         return [
-            'email' => [
-                'required',
-                'email',
-                'regex:/.*@online\.bits-pilani\.ac\.in$/'
-            ],
-            'password' => ['required'],
+            'email'    => ['required', 'string', 'email:rfc'],
+            'password' => ['required', 'string'],
         ];
     }
-
 
     /**
      * Attempt to authenticate the request's credentials.
@@ -85,6 +88,6 @@ class LoginRequest extends FormRequest
      */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+        return Str::transliterate(Str::lower($this->string('email')) . '|' . $this->ip());
     }
 }

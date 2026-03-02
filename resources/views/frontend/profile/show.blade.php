@@ -18,6 +18,10 @@
             <p class="text-muted mb-3">{{ $user->email }}</p>
 
             <!-- Stats -->
+            @php
+                $ratingsReceived = $user->ratingsReceived()->with('rater')->get();
+            @endphp
+
             <div class="row" style="margin-top: 20px;">
                 <div class="col-6 col-md-3">
                     <small class="text-muted">Items Listed</small>
@@ -40,7 +44,7 @@
                 <div class="col-6 col-md-3">
                     <small class="text-muted">Total Reviews</small>
                     <h5 style="color: #333; font-weight: 700; margin: 5px 0;">
-                        {{ $user->ratingsReceived->count() }}
+                        {{ $ratingsReceived->count() }}
                     </h5>
                 </div>
             </div>
@@ -77,7 +81,7 @@
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="ratings-tab" data-bs-toggle="tab" data-bs-target="#ratings" type="button" role="tab">
-            <i class="bi bi-star"></i> Reviews ({{ $user->ratingsReceived->count() }})
+            <i class="bi bi-star"></i> Reviews ({{ $ratingsReceived->count() }})
         </button>
     </li>
 </ul>
@@ -129,10 +133,10 @@
 
     <!-- Ratings Tab -->
     <div class="tab-pane fade" id="ratings" role="tabpanel">
-        @if ($user->ratingsReceived->count() > 0)
+        @if ($ratingsReceived->count() > 0)
             <div class="row">
                 <div class="col-lg-8">
-                    @foreach ($user->ratingsReceived as $rating)
+                    @foreach ($ratingsReceived as $rating)
                         <div class="card mb-3">
                             <div class="card-body">
                                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
@@ -167,17 +171,18 @@
                                 {{ round($user->averageRating(), 1) }} / 5.0
                             </h3>
                             <small class="text-muted d-block mb-15px;">
-                                Based on {{ $user->ratingsReceived->count() }} ratings
+                                Based on {{ $ratingsReceived->count() }} ratings
                             </small>
 
                             @php
                                 $distribution = [
-                                    5 => $user->ratingsReceived->where('rating', 5)->count(),
-                                    4 => $user->ratingsReceived->where('rating', 4)->count(),
-                                    3 => $user->ratingsReceived->where('rating', 3)->count(),
-                                    2 => $user->ratingsReceived->where('rating', 2)->count(),
-                                    1 => $user->ratingsReceived->where('rating', 1)->count(),
+                                    5 => $ratingsReceived->where('rating', 5)->count(),
+                                    4 => $ratingsReceived->where('rating', 4)->count(),
+                                    3 => $ratingsReceived->where('rating', 3)->count(),
+                                    2 => $ratingsReceived->where('rating', 2)->count(),
+                                    1 => $ratingsReceived->where('rating', 1)->count(),
                                 ];
+                                $total = $ratingsReceived->count();
                             @endphp
 
                             @foreach ([5, 4, 3, 2, 1] as $stars)
@@ -185,7 +190,6 @@
                                     <small style="width: 30px; font-weight: 600;">{{ $stars }}★</small>
                                     <div class="progress" style="flex: 1; height: 6px; margin: 0 10px;">
                                         @php
-                                            $total = $user->ratingsReceived->count();
                                             $percent = $total > 0 ? ($distribution[$stars] / $total) * 100 : 0;
                                         @endphp
                                         <div class="progress-bar" style="width: {{ $percent }}%;"></div>

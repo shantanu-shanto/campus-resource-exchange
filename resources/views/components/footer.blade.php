@@ -29,7 +29,13 @@
                     </li>
                     @auth
                         <li class="mb-2">
-                            <a href="{{ route('frontend.dashboard') }}" style="color: rgba(255,255,255,0.85); text-decoration: none;">Dashboard</a>
+                            @if(auth()->user()->role === 'super_admin')
+                                <a href="{{ route('super-admin.dashboard') }}" style="color: rgba(255,255,255,0.85); text-decoration: none;">Dashboard</a>
+                            @elseif(auth()->user()->role === 'uni_admin')
+                                <a href="{{ route('uni-admin.dashboard') }}" style="color: rgba(255,255,255,0.85); text-decoration: none;">Dashboard</a>
+                            @else
+                                <a href="{{ route('home') }}" style="color: rgba(255,255,255,0.85); text-decoration: none;">Dashboard</a>
+                            @endif
                         </li>
                     @else
                         <li class="mb-2">

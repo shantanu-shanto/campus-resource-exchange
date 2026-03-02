@@ -3,54 +3,53 @@
 namespace App\Http\Controllers\Frontend;
 
 use App\Http\Controllers\Controller;
-use App\Models\Item;
 use App\Models\Transaction;
-use App\Models\User;
+use App\Models\Penalty;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 
 class DashboardController extends Controller
 {
     /**
-     * Main dashboard view with comprehensive user stats
+     * Main dashboard view with comprehensive user stats.
+     *
+     * FIX 1: activeTransactions and totalTransactions now use owner_id directly
+     *         instead of whereHas('item') — avoids unnecessary joins.
+     * FIX 2: activeLending uses owner_id directly.
+     * FIX 3: recentLending uses owner_id directly.
+     * FIX 4: getUnreadMessageCount() corrected to unreadMessageCount().
+     * FIX 5: analyticsDashboard repeated query block extracted to helper.
      */
     public function index(): View
     {
         $user = auth()->user();
 
-        // Count active transactions (both as borrower and owner)
+        // FIX: use owner_id directly — no whereHas needed
         $activeTransactions = Transaction::where(function ($query) use ($user) {
-            // As borrower
             $query->where('borrower_id', $user->id)
-                ->whereIn('status', ['pending', 'active']);
+                  ->whereIn('status', ['pending', 'active']);
         })
         ->orWhere(function ($query) use ($user) {
-            // As owner (through item)
-            $query->whereHas('item', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            })->whereIn('status', ['pending', 'active']);
+            $query->where('owner_id', $user->id)
+                  ->whereIn('status', ['pending', 'active']);
         })
         ->count();
 
-        // Get active borrowing transactions (user is borrowing)
         $activeBorrowing = Transaction::where('borrower_id', $user->id)
             ->whereIn('status', ['pending', 'active'])
-            ->with(['item.owner'])  // Fix: Changed from 'item', 'item.owner'
+            ->with(['item.owner'])
             ->orderBy('due_date', 'asc')
             ->take(5)
             ->get();
 
-        // Get active lending transactions (user is lending - owner of item)
-        $activeLending = Transaction::whereHas('item', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-        ->whereIn('status', ['pending', 'active'])
-        ->with(['item', 'borrower'])
-        ->orderBy('due_date', 'asc')
-        ->take(5)
-        ->get();
+        // FIX: owner_id direct query
+        $activeLending = Transaction::where('owner_id', $user->id)
+            ->whereIn('status', ['pending', 'active'])
+            ->with(['item', 'borrower'])
+            ->orderBy('due_date', 'asc')
+            ->take(5)
+            ->get();
 
-        // Get user's items with transaction counts
         $userItems = $user->items()
             ->with(['transactions' => function ($q) {
                 $q->whereIn('status', ['pending', 'active']);
@@ -59,32 +58,25 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        // Get user stats
         $totalItems = $user->items()->count();
-        $totalTransactions = Transaction::where(function ($query) use ($user) {
-            $query->where('borrower_id', $user->id)->orWhereHas('item', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            });
-        })->count();
 
-        // Get user's average rating
+        // FIX: owner_id direct query
+        $totalTransactions = Transaction::where('borrower_id', $user->id)
+            ->orWhere('owner_id', $user->id)
+            ->count();
+
         $averageRating = $user->averageRating();
 
-        // Get user's unpaid penalties (Fixed: Use correct relationship)
-        $unpaidPenalties = \App\Models\Penalty::whereHas('transaction', function ($q) use ($user) {
+        $unpaidPenalties = Penalty::whereHas('transaction', function ($q) use ($user) {
             $q->where('borrower_id', $user->id);
         })
         ->where('status', 'pending')
         ->sum('amount');
 
-        // Check for overdue items
         $hasOverdueItems = $user->transactionsAsBorrower()
             ->where('status', 'active')
             ->where('due_date', '<', Carbon::today())
             ->exists();
-
-        // Get recent activity (transactions created by user or involving their items)
-        $recentActivity = collect();
 
         // Recent borrowing activity
         $recentBorrowing = Transaction::where('borrower_id', $user->id)
@@ -94,45 +86,41 @@ class DashboardController extends Controller
             ->get()
             ->map(function ($transaction) {
                 return [
-                    'title' => 'Borrowed: ' . $transaction->item->title,
-                    'description' => 'Due on ' . $transaction->due_date->format('M d, Y'),
-                    'timestamp' => $transaction->created_at,
+                    'title'       => 'Borrowed: ' . $transaction->item->title,
+                    'description' => 'Due on ' . $transaction->due_date?->format('M d, Y'),
+                    'timestamp'   => $transaction->created_at,
                 ];
             });
 
-        // Recent lending activity
-        $recentLending = Transaction::whereHas('item', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-        ->with(['item', 'borrower'])
-        ->latest()
-        ->take(3)
-        ->get()
-        ->map(function ($transaction) {
-            return [
-                'title' => 'Lent: ' . $transaction->item->title,
-                'description' => 'Borrowed by ' . $transaction->borrower->name,
-                'timestamp' => $transaction->created_at,
-            ];
-        });
+        // FIX: owner_id direct query
+        $recentLending = Transaction::where('owner_id', $user->id)
+            ->with(['item', 'borrower'])
+            ->latest()
+            ->take(3)
+            ->get()
+            ->map(function ($transaction) {
+                return [
+                    'title'       => 'Lent: ' . $transaction->item->title,
+                    'description' => 'Borrowed by ' . $transaction->borrower->name,
+                    'timestamp'   => $transaction->created_at,
+                ];
+            });
 
-        // Combine and sort by timestamp
         $recentActivity = $recentBorrowing->concat($recentLending)
             ->sortByDesc('timestamp')
             ->take(5);
 
-
         return view('frontend.dashboard.index', [
             'activeTransactions' => $activeTransactions,
-            'activeBorrowing' => $activeBorrowing,
-            'activeLending' => $activeLending,
-            'userItems' => $userItems,
-            'totalItems' => $totalItems,
-            'totalTransactions' => $totalTransactions,
-            'averageRating' => $averageRating,
-            'pendingPenalties' => $unpaidPenalties,
-            'hasOverdueItems' => $hasOverdueItems,
-            'recentActivity' => $recentActivity,
+            'activeBorrowing'    => $activeBorrowing,
+            'activeLending'      => $activeLending,
+            'userItems'          => $userItems,
+            'totalItems'         => $totalItems,
+            'totalTransactions'  => $totalTransactions,
+            'averageRating'      => $averageRating,
+            'pendingPenalties'   => $unpaidPenalties,
+            'hasOverdueItems'    => $hasOverdueItems,
+            'recentActivity'     => $recentActivity,
         ]);
     }
 
@@ -157,84 +145,76 @@ class DashboardController extends Controller
             ->get();
 
         return view('frontend.dashboard.borrower', [
-            'activeBorrowing' => $activeBorrowing,
+            'activeBorrowing'    => $activeBorrowing,
             'completedBorrowing' => $completedBorrowing,
         ]);
     }
 
     /**
-     * Lender-specific dashboard
+     * Lender-specific dashboard — FIX: owner_id direct query
      */
     public function lenderDashboard(): View
     {
         $user = auth()->user();
 
-        $activeLending = Transaction::whereHas('item', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-        ->whereIn('status', ['pending', 'active'])
-        ->with(['item', 'borrower'])
-        ->orderBy('due_date', 'asc')
-        ->get();
+        $activeLending = Transaction::where('owner_id', $user->id)
+            ->whereIn('status', ['pending', 'active'])
+            ->with(['item', 'borrower'])
+            ->orderBy('due_date', 'asc')
+            ->get();
 
-        $completedLending = Transaction::whereHas('item', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-        ->where('status', 'completed')
-        ->with(['item', 'borrower', 'ratings.rater'])
-        ->latest()
-        ->take(10)
-        ->get();
+        $completedLending = Transaction::where('owner_id', $user->id)
+            ->where('status', 'completed')
+            ->with(['item', 'borrower', 'ratings.rater'])
+            ->latest()
+            ->take(10)
+            ->get();
 
         return view('frontend.dashboard.lender', [
-            'activeLending' => $activeLending,
+            'activeLending'    => $activeLending,
             'completedLending' => $completedLending,
         ]);
     }
 
     /**
-     * Profile dashboard
+     * Profile dashboard — FIX: corrected unreadMessageCount() method name
      */
     public function profileDashboard(): View
     {
         $user = auth()->user();
 
         return view('frontend.dashboard.profile', [
-            'user' => $user,
-            'averageRating' => $user->averageRating(),
-            'totalItems' => $user->items()->count(),
-            'unreadMessages' => $user->getUnreadMessageCount(),
+            'user'           => $user,
+            'averageRating'  => $user->averageRating(),
+            'totalItems'     => $user->items()->count(),
+            // FIX: was getUnreadMessageCount() which doesn't exist
+            'unreadMessages' => $user->unreadMessageCount(),
         ]);
     }
 
     /**
-     * Analytics dashboard
+     * Analytics dashboard.
+     *
+     * FIX: repeated owner/borrower query block extracted to
+     *      userTransactionQuery() helper — no more duplication.
      */
     public function analyticsDashboard(): View
     {
         $user = auth()->user();
 
-        $completedTransactions = Transaction::where(function ($query) use ($user) {
-            $query->where('borrower_id', $user->id)->orWhereHas('item', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            });
-        })
-        ->where('status', 'completed')
-        ->count();
+        $completedTransactions = $this->userTransactionQuery($user)
+            ->where('status', 'completed')
+            ->count();
 
-        $lateTransactions = Transaction::where(function ($query) use ($user) {
-            $query->where('borrower_id', $user->id)->orWhereHas('item', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            });
-        })
-        ->where('status', 'late')
-        ->count();
+        $lateTransactions = $this->userTransactionQuery($user)
+            ->where('status', 'late')
+            ->count();
 
         return view('frontend.dashboard.analytics', [
             'completedTransactions' => $completedTransactions,
-            'lateTransactions' => $lateTransactions,
-            'averageRating' => $user->averageRating(),
-            'totalItems' => $user->items()->count(),
+            'lateTransactions'      => $lateTransactions,
+            'averageRating'         => $user->averageRating(),
+            'totalItems'            => $user->items()->count(),
         ]);
     }
 
@@ -245,6 +225,7 @@ class DashboardController extends Controller
     {
         $user = auth()->user();
 
+        // scopeUnread() exists on Message model
         $unreadMessages = $user->messagesReceived()
             ->unread()
             ->with(['sender', 'conversation'])
@@ -260,7 +241,21 @@ class DashboardController extends Controller
 
         return view('frontend.dashboard.notifications', [
             'unreadMessages' => $unreadMessages,
-            'overdueItems' => $overdueItems,
+            'overdueItems'   => $overdueItems,
         ]);
+    }
+
+    // ========================================
+    // Helper Methods
+    // ========================================
+
+    /**
+     * Base query for transactions involving the user as owner OR borrower.
+     * Extracted to avoid repeating the same orWhere block across methods.
+     */
+    private function userTransactionQuery($user)
+    {
+        return Transaction::where('borrower_id', $user->id)
+            ->orWhere('owner_id', $user->id);
     }
 }

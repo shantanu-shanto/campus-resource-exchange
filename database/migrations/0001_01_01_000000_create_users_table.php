@@ -17,6 +17,19 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+
+            // Role system: super_admin > uni_admin > user
+            $table->enum('role', ['super_admin', 'uni_admin', 'user'])->default('user');
+
+            // Account status: pending until verified by uni_admin (or super_admin for uni_admins)
+            $table->enum('status', ['pending', 'verified', 'rejected'])->default('pending');
+
+            // University association (nullable: super_admin has no university)
+            // FIX: foreign key constraint removed from here — universities table is created in
+            // 0000_01_01_000000_create_universities_table.php which runs just before this file,
+            // so the constraint is safe to define directly here now.
+            $table->foreignId('university_id')->nullable()->constrained('universities')->nullOnDelete();
+
             $table->rememberToken();
             $table->timestamps();
         });

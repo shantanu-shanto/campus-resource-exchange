@@ -9,31 +9,23 @@ class Item extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'user_id',
+        'university_id',
         'title',
         'description',
-        'availability_mode',
+        'availability_mode', // share | lend | sell | both
         'price',
         'lending_duration_days',
         'status',
         'pickup_location',
+        'image_path',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
-            'price' => 'decimal:2',
+            'price'                => 'decimal:2',
             'lending_duration_days' => 'integer',
         ];
     }
@@ -51,7 +43,15 @@ class Item extends Model
     }
 
     /**
-     * All transactions related to this item
+     * The university this item belongs to
+     */
+    public function university()
+    {
+        return $this->belongsTo(University::class);
+    }
+
+    /**
+     * All transactions for this item
      */
     public function transactions()
     {
@@ -59,7 +59,7 @@ class Item extends Model
     }
 
     /**
-     * Active transaction (current borrower/buyer)
+     * Current active or pending transaction
      */
     public function activeTransaction()
     {
@@ -68,198 +68,193 @@ class Item extends Model
     }
 
     /**
-     * Ratings received for this item (through transactions)
+     * Ratings received through transactions
      */
     public function ratings()
     {
-        return $this->hasManyThrough(Rating::class, Transaction::class);
+        return $this->hasManyThrough(
+            Rating::class,
+            Transaction::class,
+            'item_id',        // FK on transactions
+            'transaction_id', // FK on ratings
+            'id',
+            'id'
+        );
+    }
+
+    /**
+     * Conversations started about this item
+     */
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class);
     }
 
     // ========================================
-    // Scope Methods
+    // Scopes
     // ========================================
 
-    /**
-     * Scope to get only available items
-     */
     public function scopeAvailable($query)
     {
         return $query->where('status', 'available');
     }
 
-    /**
-     * Scope to get items available for lending
-     */
+    public function scopeForUniversity($query, int $universityId)
+    {
+        return $query->where('university_id', $universityId);
+    }
+
     public function scopeForLending($query)
     {
-        return $query->whereIn('availability_mode', ['lend', 'both'])
+        return $query->whereIn('availability_mode', ['lend', 'both', 'share'])
             ->where('status', 'available');
     }
 
-    /**
-     * Scope to get items available for selling
-     */
     public function scopeForSelling($query)
     {
         return $query->whereIn('availability_mode', ['sell', 'both'])
             ->where('status', 'available');
     }
 
-    /**
-     * Scope to search items by title or description
-     */
-    public function scopeSearch($query, $term)
+    public function scopeFree($query)
     {
-        return $query->where(function($q) use ($term) {
+        return $query->where('availability_mode', 'share')
+            ->where('status', 'available');
+    }
+
+    public function scopeSearch($query, string $term)
+    {
+        return $query->where(function ($q) use ($term) {
             $q->where('title', 'like', "%{$term}%")
               ->orWhere('description', 'like', "%{$term}%");
         });
     }
 
     // ========================================
-    // Helper Methods
+    // Status / Mode Helpers
     // ========================================
 
-    /**
-     * Check if item is available for lending
-     */
     public function isAvailableForLending(): bool
     {
-        return in_array($this->availability_mode, ['lend', 'both']) 
+        return in_array($this->availability_mode, ['lend', 'both', 'share'])
             && $this->status === 'available';
     }
 
-    /**
-     * Check if item is available for selling
-     */
     public function isAvailableForSelling(): bool
     {
-        return in_array($this->availability_mode, ['sell', 'both']) 
+        return in_array($this->availability_mode, ['sell', 'both'])
             && $this->status === 'available';
     }
 
-    /**
-     * Check if item is currently borrowed
-     */
+    public function isFree(): bool
+    {
+        return $this->availability_mode === 'share';
+    }
+
     public function isBorrowed(): bool
     {
         return $this->status === 'borrowed';
     }
 
-    /**
-     * Check if item has been sold
-     */
     public function isSold(): bool
     {
         return $this->status === 'sold';
     }
 
-    /**
-     * Get the current borrower (if borrowed)
-     */
-    public function currentBorrower()
-    {
-        $transaction = $this->activeTransaction;
-        return $transaction ? $transaction->borrower : null;
-    }
-
-    /**
-     * Mark item as borrowed
-     */
     public function markAsBorrowed(): void
     {
         $this->update(['status' => 'borrowed']);
     }
 
-    /**
-     * Mark item as sold
-     */
     public function markAsSold(): void
     {
         $this->update(['status' => 'sold']);
     }
 
-    /**
-     * Mark item as available
-     */
     public function markAsAvailable(): void
     {
         $this->update(['status' => 'available']);
     }
 
-    /**
-     * Calculate average rating for this item
-     */
+    // ========================================
+    // Stat Helpers
+    // ========================================
+
     public function averageRating(): float
     {
         return $this->ratings()->avg('rating') ?? 0.0;
     }
 
-    /**
-     * Get total number of times this item has been borrowed
-     */
     public function totalBorrowCount(): int
     {
         return $this->transactions()
-            ->where('type', 'lend')
+            ->whereIn('type', ['lend', 'share'])
             ->where('status', 'completed')
             ->count();
     }
 
-    /**
-     * Check if price is required based on availability mode
-     */
-    public function requiresPrice(): bool
+    public function currentBorrower(): ?User
     {
-        return in_array($this->availability_mode, ['sell', 'both']);
+        return $this->activeTransaction?->borrower;
     }
 
-    /**
-     * Get formatted price
-     */
-    public function getFormattedPriceAttribute(): string
-    {
-        return $this->price ? '৳' . number_format($this->price, 2) : 'N/A';
-    }
+    // ========================================
+    // Display Helpers
+    // ========================================
 
-    /**
-     * Get availability mode label
-     */
     public function getAvailabilityModeLabel(): string
     {
         return match($this->availability_mode) {
-            'lend' => 'Lending Only',
-            'sell' => 'Selling Only',
-            'both' => 'Lending & Selling',
-            default => 'Unknown'
+            'share' => 'Free / Share',
+            'lend'  => 'Lending Only',
+            'sell'  => 'Selling Only',
+            'both'  => 'Lending & Selling',
+            default => 'Unknown',
         };
     }
 
-    /**
-     * Get status label
-     */
+    public function getAvailabilityModeBadgeColor(): string
+    {
+        return match($this->availability_mode) {
+            'share' => 'success',
+            'lend'  => 'info',
+            'sell'  => 'danger',
+            'both'  => 'primary',
+            default => 'secondary',
+        };
+    }
+
     public function getStatusLabel(): string
     {
         return match($this->status) {
             'available' => 'Available',
-            'borrowed' => 'Currently Borrowed',
-            'sold' => 'Sold',
-            'reserved' => 'Reserved',
-            default => 'Unknown'
+            'borrowed'  => 'Currently Borrowed',
+            'sold'      => 'Sold',
+            'reserved'  => 'Reserved',
+            default     => 'Unknown',
         };
     }
 
-    /**
-     * Get status badge color for UI
-     */
     public function getStatusBadgeColor(): string
     {
         return match($this->status) {
-            'available' => 'green',
-            'borrowed' => 'blue',
-            'sold' => 'gray',
-            'reserved' => 'yellow',
-            default => 'gray'
+            'available' => 'success',
+            'borrowed'  => 'warning',
+            'sold'      => 'secondary',
+            'reserved'  => 'info',
+            default     => 'secondary',
         };
+    }
+
+    public function getFormattedPriceAttribute(): string
+    {
+        return $this->price ? '৳' . number_format($this->price, 2) : 'Free';
+    }
+
+    public function getImageUrlAttribute(): string
+    {
+        return $this->image_path
+            ? asset('storage/' . $this->image_path)
+            : asset('images/placeholder.png');
     }
 }

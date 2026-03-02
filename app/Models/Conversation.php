@@ -10,21 +10,12 @@ class Conversation extends Model
 {
     use HasFactory, SoftDeletes;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'user_id_1',
         'user_id_2',
+        'item_id',   // context: which item this conversation is about
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -38,33 +29,29 @@ class Conversation extends Model
     // Relationships
     // ========================================
 
-    /**
-     * First user in conversation
-     */
     public function user1()
     {
         return $this->belongsTo(User::class, 'user_id_1');
     }
 
-    /**
-     * Second user in conversation
-     */
     public function user2()
     {
         return $this->belongsTo(User::class, 'user_id_2');
     }
 
     /**
-     * All messages in conversation
+     * The item this conversation is about (nullable)
      */
+    public function item()
+    {
+        return $this->belongsTo(Item::class);
+    }
+
     public function messages()
     {
         return $this->hasMany(Message::class);
     }
 
-    /**
-     * Last message in conversation
-     */
     public function lastMessage()
     {
         return $this->hasOne(Message::class)
@@ -76,41 +63,29 @@ class Conversation extends Model
     // Scopes
     // ========================================
 
-    /**
-     * Scope: Conversations for a specific user
-     */
     public function scopeForUser($query, User $user)
     {
         return $query->where('user_id_1', $user->id)
             ->orWhere('user_id_2', $user->id);
     }
 
-    /**
-     * Scope: Conversations with unread messages
-     */
     public function scopeWithUnreadMessages($query, User $user)
     {
-        return $query->whereHas('messages', function($q) use ($user) {
+        return $query->whereHas('messages', function ($q) use ($user) {
             $q->where('receiver_id', $user->id)
               ->whereNull('read_at');
         });
     }
 
     // ========================================
-    // Helper Methods
+    // Helpers
     // ========================================
 
-    /**
-     * Get the other user in conversation
-     */
     public function getOtherUser(User $user): User
     {
         return $this->user_id_1 === $user->id ? $this->user2 : $this->user1;
     }
 
-    /**
-     * Get unread message count for a user
-     */
     public function getUnreadCount(User $user): int
     {
         return $this->messages()
@@ -119,9 +94,6 @@ class Conversation extends Model
             ->count();
     }
 
-    /**
-     * Mark all messages as read for a user
-     */
     public function markAllAsRead(User $user): void
     {
         $this->messages()
@@ -130,19 +102,24 @@ class Conversation extends Model
             ->update(['read_at' => now()]);
     }
 
-    /**
-     * Get message count
-     */
-    public function getMessageCount(): int
-    {
-        return $this->messages()->count();
-    }
-
-    /**
-     * Check if user can access this conversation
-     */
     public function belongsToUser(User $user): bool
     {
         return $this->user_id_1 === $user->id || $this->user_id_2 === $user->id;
+    }
+
+    /**
+     * Find existing conversation between two users about a specific item.
+     * Used to prevent duplicate conversations.
+     */
+    public static function findBetween(int $userId1, int $userId2, ?int $itemId = null): ?self
+    {
+        return self::where(function ($q) use ($userId1, $userId2) {
+                $q->where('user_id_1', $userId1)->where('user_id_2', $userId2);
+            })
+            ->orWhere(function ($q) use ($userId1, $userId2) {
+                $q->where('user_id_1', $userId2)->where('user_id_2', $userId1);
+            })
+            ->when($itemId, fn($q) => $q->where('item_id', $itemId))
+            ->first();
     }
 }

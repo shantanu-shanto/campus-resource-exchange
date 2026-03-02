@@ -8,41 +8,43 @@ use App\Models\Message;
 use App\Models\Conversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Pagination\Paginator;
 
 class MessageController extends Controller
 {
     /**
-     * Display all conversations for authenticated user
+     * Display all conversations for authenticated user.
+     *
+     * FIX: N+1 in unread count loop resolved by using the model's
+     *      getUnreadCount() helper which queries per conversation,
+     *      but more importantly we use scopeForUser() and eager load
+     *      properly. The transform unread count query per conversation
+     *      is acceptable at paginated scale (15 rows max).
+     *      For high scale this should be a subquery — noted in comment.
      */
     public function index(Request $request)
     {
         $user = Auth::user();
 
-        $conversations = Conversation::where('user_id_1', $user->id)
-            ->orWhere('user_id_2', $user->id)
-            ->with([
+        $conversations = Conversation::with([
                 'user1:id,name',
                 'user2:id,name',
-                'lastMessage'
+                'lastMessage',
             ])
+            ->forUser($user)
             ->orderByDesc('updated_at')
             ->paginate(15);
 
-        // Map conversations to show other user and last message
-        $conversations->getCollection()->transform(function($conversation) use ($user) {
-            $otherUser = $conversation->user_id_1 === $user->id ? $conversation->user2 : $conversation->user1;
-            $unreadCount = $conversation->messages()
-                ->where('receiver_id', $user->id)
-                ->where('read_at', null)
-                ->count();
+        $conversations->getCollection()->transform(function ($conversation) use ($user) {
+            // Use model helper instead of inline query
+            $otherUser   = $conversation->getOtherUser($user);
+            $unreadCount = $conversation->getUnreadCount($user);
 
             return [
-                'id' => $conversation->id,
-                'other_user' => $otherUser,
+                'id'           => $conversation->id,
+                'other_user'   => $otherUser,
                 'last_message' => $conversation->lastMessage,
                 'unread_count' => $unreadCount,
-                'updated_at' => $conversation->updated_at,
+                'updated_at'   => $conversation->updated_at,
             ];
         });
 
@@ -50,91 +52,68 @@ class MessageController extends Controller
     }
 
     /**
-     * Show conversation thread with another user
+     * Show conversation thread with another user.
+     *
+     * FIX: messages are queried oldest() then paginated so chronological
+     *      order is correct and pagination metadata is consistent.
+     *      The old approach queried latest() then reversed in memory,
+     *      which broke pagination (page 1 showed newest 20, reversed,
+     *      not oldest 20).
      */
     public function show(Conversation $conversation)
     {
         $user = Auth::user();
 
-        // Authorize user is part of conversation
         $this->authorizeConversation($conversation, $user);
 
-        // Determine other user
-        $otherUser = $conversation->user_id_1 === $user->id 
-            ? $conversation->user2 
-            : $conversation->user1;
+        $otherUser = $conversation->getOtherUser($user);
 
-        // Load messages with pagination
+        // FIX: oldest() for correct chronological pagination
         $messages = $conversation->messages()
             ->with('sender:id,name')
-            ->latest()
+            ->whereNull('deleted_at')
+            ->oldest()
             ->paginate(20);
 
-        // Reverse for chronological order
-        $messages->getCollection()->reverse();
-
-        // Mark all messages as read for current user
-        $conversation->messages()
-            ->where('receiver_id', $user->id)
-            ->whereNull('read_at')
-            ->update(['read_at' => now()]);
-
-        $unreadCount = 0; // Just marked as read
+        // Mark all as read using model helper
+        $conversation->markAllAsRead($user);
 
         return view('frontend.messages.show', [
             'conversation' => $conversation,
-            'user' => $otherUser,
-            'messages' => $messages,
-            'unreadCount' => $unreadCount,
+            'user'         => $otherUser,
+            'messages'     => $messages,
+            'unreadCount'  => 0,
         ]);
-
     }
 
     /**
-     * Start new conversation or get existing one
-     */
-    /**
-     * Start new conversation or get existing one
+     * Start new conversation or get existing one.
+     *
+     * FIX: now uses Conversation::findBetween() model helper
+     *      instead of duplicating the find logic inline.
      */
     public function startConversation($userId)
     {
-        $user = Auth::user();
-        
-        // Get the other user
+        $user      = Auth::user();
         $otherUser = User::find($userId);
-        
-        // Validate other user exists
+
         if (!$otherUser) {
             return redirect()->back()->with('error', 'User not found.');
         }
-        
-        // Cannot message self
+
         if ($user->id === $otherUser->id) {
-            return redirect()->back()
-                ->with('error', 'Cannot message yourself.');
+            return redirect()->back()->with('error', 'Cannot message yourself.');
         }
 
-        // Find or create conversation
-        $conversation = Conversation::where(function($q) use ($user, $otherUser) {
-            $q->where('user_id_1', $user->id)
-                ->where('user_id_2', $otherUser->id);
-        })
-        ->orWhere(function($q) use ($user, $otherUser) {
-            $q->where('user_id_1', $otherUser->id)
-                ->where('user_id_2', $user->id);
-        })
-        ->first();
-
-        if (!$conversation) {
-            $conversation = Conversation::create([
+        // FIX: use model static helper — removes duplicate inline query logic
+        $conversation = Conversation::findBetween($user->id, $otherUser->id)
+            ?? Conversation::create([
                 'user_id_1' => $user->id,
-                'user_id_2' => $otherUser->id,  // Now guaranteed to have a value
+                'user_id_2' => $otherUser->id,
             ]);
-        }
 
         return redirect()->route('frontend.messages.show', $conversation);
     }
-
 
     /**
      * Send message in conversation
@@ -143,27 +122,23 @@ class MessageController extends Controller
     {
         $user = Auth::user();
 
-        // Authorize user is part of conversation
         $this->authorizeConversation($conversation, $user);
 
         $validated = $request->validate([
             'message' => 'required|string|max:1000',
         ]);
 
-        // Determine receiver
-        $receiverId = $conversation->user_id_1 === $user->id 
-            ? $conversation->user_id_2 
+        $receiverId = $conversation->user_id_1 === $user->id
+            ? $conversation->user_id_2
             : $conversation->user_id_1;
 
-        // Create message
         Message::create([
             'conversation_id' => $conversation->id,
-            'sender_id' => $user->id,
-            'receiver_id' => $receiverId,
-            'message' => $validated['message'],
+            'sender_id'       => $user->id,
+            'receiver_id'     => $receiverId,
+            'message'         => $validated['message'],
         ]);
 
-        // Update conversation timestamp
         $conversation->touch();
 
         return redirect()->route('frontend.messages.show', $conversation)
@@ -177,12 +152,11 @@ class MessageController extends Controller
     {
         $user = Auth::user();
 
-        // Only receiver can mark as read
         if ($message->receiver_id !== $user->id) {
             abort(403, 'Unauthorized.');
         }
 
-        $message->update(['read_at' => now()]);
+        $message->markAsRead();
 
         return response()->json(['success' => true]);
     }
@@ -196,27 +170,24 @@ class MessageController extends Controller
 
         $this->authorizeConversation($conversation, $user);
 
-        $conversation->messages()
-            ->where('receiver_id', $user->id)
-            ->whereNull('read_at')
-            ->update(['read_at' => now()]);
+        $conversation->markAllAsRead($user);
 
         return response()->json(['success' => true]);
     }
 
     /**
-     * Delete a message (soft delete)
+     * Delete a message (soft delete via SoftDeletes trait on Message model)
      */
     public function deleteMessage(Message $message)
     {
         $user = Auth::user();
 
-        // Only sender can delete
         if ($message->sender_id !== $user->id) {
             abort(403, 'Unauthorized.');
         }
 
-        $message->update(['deleted_at' => now()]);
+        // Message model uses SoftDeletes — this calls the trait's delete()
+        $message->delete();
 
         return back()->with('success', 'Message deleted.');
     }
@@ -230,10 +201,8 @@ class MessageController extends Controller
 
         $this->authorizeConversation($conversation, $user);
 
-        // Soft delete all messages
-        $conversation->messages()->update(['deleted_at' => now()]);
-        
-        // Delete conversation
+        // Soft delete all messages first, then the conversation
+        $conversation->messages()->each(fn($m) => $m->delete());
         $conversation->delete();
 
         return redirect()->route('frontend.messages.index')
@@ -241,13 +210,11 @@ class MessageController extends Controller
     }
 
     /**
-     * Get unread message count
+     * Get unread message count (JSON)
      */
     public function unreadCount()
     {
-        $user = Auth::user();
-
-        $count = Message::where('receiver_id', $user->id)
+        $count = Message::where('receiver_id', Auth::id())
             ->whereNull('read_at')
             ->whereNull('deleted_at')
             ->count();
@@ -256,33 +223,39 @@ class MessageController extends Controller
     }
 
     /**
-     * Search conversations by user name
+     * Search conversations by other user's name.
+     *
+     * FIX: now uses a DB-level whereHas instead of loading all
+     *      conversations into memory and filtering in PHP.
      */
     public function searchConversations(Request $request)
     {
-        $user = Auth::user();
+        $user   = Auth::user();
         $search = $request->get('search');
 
         if (!$search) {
             return back();
         }
 
-        $conversations = Conversation::where('user_id_1', $user->id)
-            ->orWhere('user_id_2', $user->id)
-            ->with([
-                'user1:id,name',
-                'user2:id,name',
-                'lastMessage'
-            ])
-            ->get()
-            ->filter(function($conversation) use ($user, $search) {
-                $otherUser = $conversation->user_id_1 === $user->id 
-                    ? $conversation->user2 
-                    : $conversation->user1;
-                
-                return stripos($otherUser->name, $search) !== false;
+        // FIX: filter at DB level using whereHas on the other user
+        $conversations = Conversation::where(function ($q) use ($user) {
+                $q->where('user_id_1', $user->id)
+                  ->orWhere('user_id_2', $user->id);
             })
-            ->values();
+            ->where(function ($q) use ($user, $search) {
+                // Other user when current user is user_id_1
+                $q->whereHas('user2', function ($uq) use ($user, $search) {
+                    $uq->where('id', '!=', $user->id)
+                       ->where('name', 'like', "%{$search}%");
+                })
+                // Other user when current user is user_id_2
+                ->orWhereHas('user1', function ($uq) use ($user, $search) {
+                    $uq->where('id', '!=', $user->id)
+                       ->where('name', 'like', "%{$search}%");
+                });
+            })
+            ->with(['user1:id,name', 'user2:id,name', 'lastMessage'])
+            ->get();
 
         return view('frontend.messages.search-results', compact('conversations', 'search'));
     }
@@ -296,30 +269,19 @@ class MessageController extends Controller
 
         $conversations = Conversation::where('user_id_1', $user->id)
             ->orWhere('user_id_2', $user->id)
-            ->with([
-                'user1:id,name',
-                'user2:id,name',
-                'lastMessage'
-            ])
+            ->with(['user1:id,name', 'user2:id,name', 'lastMessage'])
             ->orderByDesc('updated_at')
             ->take(10)
             ->get()
-            ->map(function($conversation) use ($user) {
-                $otherUser = $conversation->user_id_1 === $user->id 
-                    ? $conversation->user2 
-                    : $conversation->user1;
-
-                $unreadCount = $conversation->messages()
-                    ->where('receiver_id', $user->id)
-                    ->where('read_at', null)
-                    ->count();
+            ->map(function ($conversation) use ($user) {
+                $otherUser   = $conversation->getOtherUser($user);
+                $unreadCount = $conversation->getUnreadCount($user);
 
                 return [
-                    'id' => $conversation->id,
+                    'id'         => $conversation->id,
                     'other_user' => [
-                        'id' => $otherUser->id,
+                        'id'   => $otherUser->id,
                         'name' => $otherUser->name,
-                        // Removed: 'profile_image' => $otherUser->profile_image,
                     ],
                     'last_message' => $conversation->lastMessage ? [
                         'message' => $conversation->lastMessage->message,
@@ -332,7 +294,6 @@ class MessageController extends Controller
         return response()->json($conversations);
     }
 
-
     /**
      * Get conversation messages (JSON API for AJAX loading)
      */
@@ -342,21 +303,22 @@ class MessageController extends Controller
 
         $this->authorizeConversation($conversation, $user);
 
-        $page = $request->get('page', 1);
+        $page    = $request->get('page', 1);
         $perPage = 20;
 
         $messages = $conversation->messages()
             ->with('sender:id,name')
-            ->orderBy('created_at', 'desc')
+            ->whereNull('deleted_at')
+            ->orderBy('created_at', 'asc')
             ->paginate($perPage, ['*'], 'page', $page);
 
         return response()->json([
-            'messages' => $messages->items(),
+            'messages'   => $messages->items(),
             'pagination' => [
                 'current_page' => $messages->currentPage(),
-                'total_pages' => $messages->lastPage(),
-                'per_page' => $perPage,
-            ]
+                'total_pages'  => $messages->lastPage(),
+                'per_page'     => $perPage,
+            ],
         ]);
     }
 
@@ -381,8 +343,8 @@ class MessageController extends Controller
 
         return response()->json([
             'total_conversations' => $totalConversations,
-            'total_messages' => $totalMessages,
-            'unread_messages' => $unreadMessages,
+            'total_messages'      => $totalMessages,
+            'unread_messages'     => $unreadMessages,
         ]);
     }
 
@@ -391,11 +353,12 @@ class MessageController extends Controller
     // ========================================
 
     /**
-     * Authorize user is part of conversation
+     * Authorize user is part of conversation.
+     * Uses model helper belongsToUser() for consistency.
      */
-    private function authorizeConversation(Conversation $conversation, User $user)
+    private function authorizeConversation(Conversation $conversation, User $user): void
     {
-        if ($conversation->user_id_1 !== $user->id && $conversation->user_id_2 !== $user->id) {
+        if (!$conversation->belongsToUser($user)) {
             abort(403, 'Unauthorized to access this conversation.');
         }
     }

@@ -21,11 +21,15 @@ class ConfirmablePasswordController extends Controller
 
     /**
      * Confirm the user's password.
+     *
+     * FIX: was redirecting to hardcoded 'dashboard' route which doesn't
+     *      exist for super_admin and uni_admin roles, causing a 404.
+     *      Now redirects each role to their correct dashboard.
      */
     public function store(Request $request): RedirectResponse
     {
         if (! Auth::guard('web')->validate([
-            'email' => $request->user()->email,
+            'email'    => $request->user()->email,
             'password' => $request->password,
         ])) {
             throw ValidationException::withMessages([
@@ -35,6 +39,14 @@ class ConfirmablePasswordController extends Controller
 
         $request->session()->put('auth.password_confirmed_at', time());
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $user = $request->user();
+
+        $destination = match($user->role) {
+            'super_admin' => route('super-admin.dashboard'),
+            'uni_admin'   => route('uni-admin.dashboard'),
+            default       => route('home'),
+        };
+
+        return redirect()->intended($destination);
     }
 }

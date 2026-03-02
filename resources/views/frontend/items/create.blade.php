@@ -300,7 +300,7 @@
                 <button type="submit" class="btn btn-primary btn-lg flex-grow-1">
                     <i class="bi bi-check-circle"></i> List Item
                 </button>
-                <a href="{{ route('frontend.dashboard') }}" class="btn btn-outline-secondary btn-lg">
+                <a href="{{ route('home') }}" class="btn btn-outline-secondary btn-lg">
                     <i class="bi bi-x-circle"></i> Cancel
                 </a>
             </div>

@@ -43,12 +43,57 @@ class ItemController extends Controller
         return view('frontend.items.index', compact('items'));
     }
 
+
+
+    
+    public function home(Request $request)
+    {
+        $user         = auth()->user();
+        $universityId = $user->university_id;
+
+        $query = Item::query()
+            ->where('university_id', $universityId)   // ← campus isolation
+            ->where('status', 'available')
+            ->where('user_id', '!=', $user->id)       // ← don't show own items
+            ->with(['owner:id,name', 'activeTransaction.borrower:id,name']);
+
+        // Search
+        if ($search = $request->get('search')) {
+            $query->search($search);
+        }
+
+        // Filter by mode
+        $mode = $request->get('mode');
+        if ($mode === 'lend') {
+            $query->forLending();
+        } elseif ($mode === 'sell') {
+            $query->forSelling();
+        } elseif ($mode === 'share') {
+            $query->where('availability_mode', 'share');
+        }
+
+        $items = $query
+            ->withCount(['ratings', 'transactions'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(12)
+            ->withQueryString();
+
+        // Sidebar stats for the user
+        $userStats = [
+            'active_borrows'   => $user->transactionsAsBorrower()->whereIn('status', ['pending', 'active'])->count(),
+            'my_listings'      => $user->items()->where('status', 'available')->count(),
+            'pending_penalties'=> $user->hasPendingPenalties(),
+            'unread_messages'  => $user->unreadMessageCount(),
+        ];
+
+        return view('frontend.home', compact('items', 'userStats'));
+    }
+
     /**
      * Show detailed view of a specific item
      */
     public function show(Item $item)
     {
-        // Eager load relationships
         $item->load([
             'owner:id,name,email',
             'ratings.rater:id,name',
@@ -57,14 +102,13 @@ class ItemController extends Controller
             }
         ]);
 
-        $avgRating = $item->averageRating();
+        $avgRating    = $item->averageRating();
         $totalBorrowed = $item->totalBorrowCount();
 
-        // Permission checks
-        $isOwner = Auth::check() && Auth::id() === $item->user_id;
+        $isOwner   = Auth::check() && Auth::id() === $item->user_id;
         $canManage = Auth::check() && Auth::user()->canManageItem($item);
-        $canRequest = Auth::check() 
-            && !$isOwner 
+        $canRequest = Auth::check()
+            && !$isOwner
             && !Penalty::borrowerHasPending(Auth::user())
             && $item->status === 'available';
 
@@ -83,7 +127,6 @@ class ItemController extends Controller
      */
     public function create()
     {
-        // Check for unpaid penalties
         if (Auth::check() && Penalty::borrowerHasPending(Auth::user())) {
             return redirect()->route('frontend.items.index')
                 ->with('error', 'Pay all pending penalties before listing new items.');
@@ -98,31 +141,26 @@ class ItemController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'description' => 'required|string|min:10|max:1000',
+            'title'             => 'required|string|max:255',
+            'description'       => 'required|string|min:10|max:1000',
             'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both'])],
             'price' => [
-                'nullable',
-                'numeric',
-                'min:0',
-                'max:999999.99',
+                'nullable', 'numeric', 'min:0', 'max:999999.99',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['sell', 'both']))
             ],
             'lending_duration_days' => [
-                'nullable',
-                'integer',
-                'min:1',
-                'max:30',
+                'nullable', 'integer', 'min:1', 'max:30',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['lend', 'both']))
             ],
             'pickup_location' => 'required|string|max:255',
-            'item_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'item_image'      => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
-        $validated['user_id'] = Auth::id();
-        $validated['status'] = 'available';
+        $validated['user_id']       = Auth::id();
+        $validated['status']        = 'available';
+        // FIX: stamp university_id so campus isolation works
+        $validated['university_id'] = Auth::user()->university_id;
 
-        // Handle image upload
         if ($request->hasFile('item_image')) {
             $validated['image_path'] = $request->file('item_image')
                 ->store('item-images', 'public');
@@ -150,36 +188,27 @@ class ItemController extends Controller
     {
         $this->authorizeItem($item);
 
-        // Cannot edit if item is in active transaction
-        if ($item->activeTransaction && $item->activeTransaction->status !== 'cancelled') {
+        if ($item->activeTransaction) {
             return back()->with('error', 'Cannot edit item with active transaction.');
         }
 
         $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'description' => 'required|string|min:10|max:1000',
+            'title'             => 'required|string|max:255',
+            'description'       => 'required|string|min:10|max:1000',
             'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both'])],
             'price' => [
-                'nullable',
-                'numeric',
-                'min:0',
-                'max:999999.99',
+                'nullable', 'numeric', 'min:0', 'max:999999.99',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['sell', 'both']))
             ],
             'lending_duration_days' => [
-                'nullable',
-                'integer',
-                'min:1',
-                'max:30',
+                'nullable', 'integer', 'min:1', 'max:30',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['lend', 'both']))
             ],
             'pickup_location' => 'required|string|max:255',
-            'item_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'item_image'      => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
-        // Handle image update
         if ($request->hasFile('item_image')) {
-            // Delete old image if exists
             if ($item->image_path && Storage::disk('public')->exists($item->image_path)) {
                 Storage::disk('public')->delete($item->image_path);
             }
@@ -200,12 +229,10 @@ class ItemController extends Controller
     {
         $this->authorizeItem($item);
 
-        // Cannot delete if active transaction exists
         if ($item->activeTransaction) {
             return back()->with('error', 'Cannot delete item with active transaction.');
         }
 
-        // Delete image from storage
         if ($item->image_path && Storage::disk('public')->exists($item->image_path)) {
             Storage::disk('public')->delete($item->image_path);
         }
@@ -232,28 +259,41 @@ class ItemController extends Controller
     }
 
     /**
-     * Request to borrow or buy an item
+     * Request to borrow or buy an item.
+     *
+     * FIX 1: owner_id is now set directly on the transaction.
+     * FIX 2: when availability_mode is 'both', the requested type
+     *         is taken from the form input instead of being assumed.
      */
     public function requestTransaction(Request $request, Item $item)
     {
-        // Validate request can be made
         $this->validateTransactionRequest($item);
 
-        $type = $item->isAvailableForLending() ? 'lend' : 'sell';
+        // Determine transaction type
+        if ($item->availability_mode === 'both') {
+            // User must specify — validate the incoming type
+            $request->validate([
+                'type' => ['required', Rule::in(['lend', 'sell'])],
+            ]);
+            $type = $request->input('type');
+        } elseif ($item->availability_mode === 'lend') {
+            $type = 'lend';
+        } else {
+            $type = 'sell';
+        }
 
-        // Create transaction
         $transaction = Transaction::create([
-            'item_id' => $item->id,
-            'borrower_id' => Auth::id(),
-            'type' => $type,
-            'status' => 'pending',
-            'start_date' => now(),
-            'due_date' => $type === 'lend' ? now()->addDays($item->lending_duration_days) : null,
+            'item_id'        => $item->id,
+            'owner_id'       => $item->user_id,   // FIX: set owner_id directly
+            'borrower_id'    => Auth::id(),
+            'type'           => $type,
+            'status'         => 'pending',
+            'start_date'     => now(),
+            'due_date'       => $type === 'lend' ? now()->addDays($item->lending_duration_days) : null,
             'deposit_amount' => $type === 'lend' ? ($item->price ?? 0) * 0.5 : null,
-            'final_price' => $type === 'sell' ? $item->price : null,
+            'final_price'    => $type === 'sell' ? $item->price : null,
         ]);
 
-        // Mark item as reserved
         $item->update(['status' => 'reserved']);
 
         return redirect()->route('frontend.transactions.show', $transaction)
@@ -268,11 +308,11 @@ class ItemController extends Controller
         $this->authorizeItem($item);
 
         $transaction = $item->activeTransaction;
-        
+
         if ($transaction && $transaction->status === 'pending') {
             $transaction->markAsCancelled();
             $item->markAsAvailable();
-            
+
             return back()->with('success', 'Reservation cancelled.');
         }
 
@@ -280,7 +320,7 @@ class ItemController extends Controller
     }
 
     /**
-     * Mark item as borrowed
+     * Mark item as borrowed (owner confirms handoff)
      */
     public function markAsBorrowed(Item $item, Transaction $transaction)
     {
@@ -297,7 +337,10 @@ class ItemController extends Controller
     }
 
     /**
-     * Mark item as returned
+     * Mark item as returned (owner confirms return).
+     *
+     * FIX: return_date is set here before markAsLate() so the actual
+     *      return date is not lost if owner later calls markAsCompleted().
      */
     public function markAsReturned(Item $item, Transaction $transaction)
     {
@@ -307,18 +350,10 @@ class ItemController extends Controller
             return back()->with('error', 'Invalid transaction.');
         }
 
-        // Check if late and create penalty if needed
         if ($transaction->isOverdue()) {
-            $daysLate = $transaction->daysOverdue();
-            $penaltyAmount = Penalty::calculateAmount($daysLate);
-
-            Penalty::create([
-                'transaction_id' => $transaction->id,
-                'days_late' => $daysLate,
-                'amount' => $penaltyAmount,
-                'status' => 'pending',
-            ]);
-
+            // Record the actual return date before changing status
+            $transaction->update(['return_date' => now()->toDateString()]);
+            $this->createPenaltyForTransaction($transaction);
             $transaction->markAsLate();
         } else {
             $transaction->markAsCompleted();
@@ -353,7 +388,7 @@ class ItemController extends Controller
     /**
      * Authorize user can manage item
      */
-    private function authorizeItem(Item $item)
+    private function authorizeItem(Item $item): void
     {
         if (!Auth::check() || !Auth::user()->canManageItem($item)) {
             abort(403, 'Unauthorized to manage this item.');
@@ -363,29 +398,42 @@ class ItemController extends Controller
     /**
      * Validate user can request transaction
      */
-    private function validateTransactionRequest(Item $item)
+    private function validateTransactionRequest(Item $item): void
     {
-        // Check if available
         if ($item->status !== 'available') {
             abort(403, 'Item is not available.');
         }
 
-        // Check if user is owner
         if (Auth::id() === $item->user_id) {
             abort(403, 'Cannot request your own item.');
         }
 
-        // Check for unpaid penalties
         if (Penalty::borrowerHasPending(Auth::user())) {
             abort(403, 'Pay all penalties before requesting items.');
         }
 
-        // Check if user already has active transaction for this item
         if (Transaction::where('item_id', $item->id)
             ->where('borrower_id', Auth::id())
             ->whereIn('status', ['pending', 'active'])
             ->exists()) {
             abort(403, 'You already have an active request for this item.');
         }
+    }
+
+    /**
+     * Create a penalty record for an overdue transaction.
+     * Single place for penalty logic — used by both ItemController and TransactionController.
+     */
+    private function createPenaltyForTransaction(Transaction $transaction): Penalty
+    {
+        $daysLate     = $transaction->daysOverdue();
+        $penaltyAmount = Penalty::calculateAmount($daysLate);
+
+        return Penalty::create([
+            'transaction_id' => $transaction->id,
+            'days_late'      => $daysLate,
+            'amount'         => $penaltyAmount,
+            'status'         => 'pending',
+        ]);
     }
 }

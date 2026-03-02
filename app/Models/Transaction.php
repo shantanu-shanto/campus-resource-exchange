@@ -10,15 +10,11 @@ class Transaction extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'item_id',
+        'owner_id',     // direct FK — the lender/seller
         'borrower_id',
-        'type',
+        'type',         // share | lend | sell
         'start_date',
         'due_date',
         'return_date',
@@ -27,19 +23,14 @@ class Transaction extends Model
         'status',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
-            'start_date' => 'date',
-            'due_date' => 'date',
-            'return_date' => 'date',
+            'start_date'     => 'date',
+            'due_date'       => 'date',
+            'return_date'    => 'date',
             'deposit_amount' => 'decimal:2',
-            'final_price' => 'decimal:2',
+            'final_price'    => 'decimal:2',
         ];
     }
 
@@ -56,19 +47,19 @@ class Transaction extends Model
     }
 
     /**
-     * The borrower/buyer user
+     * The owner/lender/seller — direct FK, no join needed
+     */
+    public function owner()
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    /**
+     * The borrower/buyer
      */
     public function borrower()
     {
         return $this->belongsTo(User::class, 'borrower_id');
-    }
-
-    /**
-     * The owner (through item)
-     */
-    public function owner()
-    {
-        return $this->belongsTo(User::class, 'user_id')->via('item');
     }
 
     /**
@@ -80,7 +71,7 @@ class Transaction extends Model
     }
 
     /**
-     * Penalties associated with this transaction
+     * Penalties linked to this transaction
      */
     public function penalties()
     {
@@ -88,36 +79,24 @@ class Transaction extends Model
     }
 
     // ========================================
-    // Scope Methods
+    // Scopes
     // ========================================
 
-    /**
-     * Scope: Active transactions (pending or active)
-     */
     public function scopeActive($query)
     {
         return $query->whereIn('status', ['pending', 'active']);
     }
 
-    /**
-     * Scope: Completed transactions
-     */
     public function scopeCompleted($query)
     {
         return $query->where('status', 'completed');
     }
 
-    /**
-     * Scope: Late transactions
-     */
     public function scopeLate($query)
     {
         return $query->where('status', 'late');
     }
 
-    /**
-     * Scope: Overdue lending transactions
-     */
     public function scopeOverdue($query)
     {
         return $query->where('type', 'lend')
@@ -125,122 +104,151 @@ class Transaction extends Model
             ->where('due_date', '<', Carbon::today());
     }
 
-    /**
-     * Scope: By borrower
-     */
     public function scopeByBorrower($query, User $user)
     {
         return $query->where('borrower_id', $user->id);
     }
 
-    // ========================================
-    // Helper Methods
-    // ========================================
+    public function scopeByOwner($query, User $user)
+    {
+        return $query->where('owner_id', $user->id);
+    }
 
     /**
-     * Check if transaction is lending type
+     * Scope: Transactions within a specific university
+     * Used by UniAdmin to scope their campus data
      */
+    public function scopeForUniversity($query, int $universityId)
+    {
+        return $query->whereHas('item', function ($q) use ($universityId) {
+            $q->where('university_id', $universityId);
+        });
+    }
+
+    // ========================================
+    // Type Helpers
+    // ========================================
+
     public function isLending(): bool
     {
         return $this->type === 'lend';
     }
 
-    /**
-     * Check if transaction is selling type
-     */
     public function isSelling(): bool
     {
         return $this->type === 'sell';
     }
 
-    /**
-     * Check if transaction is overdue
-     */
-    public function isOverdue(): bool
+    public function isSharing(): bool
     {
-        return $this->isLending() && $this->status === 'active' 
-            && $this->due_date && $this->due_date->lt(Carbon::today());
+        return $this->type === 'share';
     }
 
-    /**
-     * Calculate days overdue
-     */
+    // ========================================
+    // Status Helpers
+    // ========================================
+
+    public function isOverdue(): bool
+    {
+        return $this->isLending()
+            && $this->status === 'active'
+            && $this->due_date
+            && $this->due_date->lt(Carbon::today());
+    }
+
     public function daysOverdue(): int
     {
-        if (!$this->isOverdue()) {
-            return 0;
-        }
+        if (!$this->isOverdue()) return 0;
         return Carbon::today()->diffInDays($this->due_date);
     }
 
-    /**
-     * Check if deposit was required
-     */
-    public function requiresDeposit(): bool
-    {
-        return $this->isLending() && $this->deposit_amount > 0;
-    }
-
-    /**
-     * Check if final price was paid
-     */
-    public function requiresPayment(): bool
-    {
-        return $this->isSelling() && $this->final_price > 0;
-    }
-
-    /**
-     * Mark as active
-     */
     public function markAsActive(): bool
     {
         return $this->update([
-            'status' => 'active',
-            'start_date' => Carbon::today()
+            'status'     => 'active',
+            'start_date' => Carbon::today(),
         ]);
     }
 
     /**
-     * Mark as completed (returned/paid)
+     * Mark transaction as completed.
+     *
+     * Only sets return_date if it hasn't been set yet.
+     * This preserves the actual return date recorded when the borrower
+     * marked the item as returned — the owner's confirmation call should
+     * not overwrite it with today's date.
      */
     public function markAsCompleted(): bool
     {
-        return $this->update([
-            'status' => 'completed',
-            'return_date' => Carbon::today()
-        ]);
+        $data = ['status' => 'completed'];
+
+        if (is_null($this->return_date)) {
+            $data['return_date'] = Carbon::today();
+        }
+
+        return $this->update($data);
     }
 
-    /**
-     * Mark as late
-     */
     public function markAsLate(): bool
     {
         return $this->update(['status' => 'late']);
     }
 
-    /**
-     * Mark as cancelled
-     */
     public function markAsCancelled(): bool
     {
         return $this->update(['status' => 'cancelled']);
     }
 
-    /**
-     * Auto-calculate due date based on item's lending duration
-     */
+    public function canBeRated(): bool
+    {
+        return in_array($this->status, ['completed', 'late']);
+    }
+
+    // ========================================
+    // Calculation Helpers
+    // ========================================
+
     public function calculateDueDate(): Carbon
     {
         if (!$this->isLending()) {
-            throw new \Exception('Due date calculation only for lending transactions');
+            throw new \Exception('Due date only applies to lending transactions.');
         }
         return Carbon::today()->addDays($this->item->lending_duration_days);
     }
 
-    /**
-     * Get formatted amounts
-     */
+    public function averageRating(): float
+    {
+        return $this->ratings()->avg('rating') ?? 0.0;
+    }
+
+    // ========================================
+    // Display Helpers
+    // ========================================
+
+    public function getStatusLabel(): string
+    {
+        return match($this->status) {
+            'pending'   => 'Pending',
+            'active'    => 'Active',
+            'completed' => 'Completed',
+            'late'      => 'Late',
+            'cancelled' => 'Cancelled',
+            default     => 'Unknown',
+        };
+    }
+
+    public function getStatusBadgeColor(): string
+    {
+        return match($this->status) {
+            'pending'   => 'warning',
+            'active'    => 'info',
+            'completed' => 'success',
+            'late'      => 'danger',
+            'cancelled' => 'secondary',
+            default     => 'secondary',
+        };
+    }
+
     public function getFormattedDepositAttribute(): string
     {
         return $this->deposit_amount ? '৳' . number_format($this->deposit_amount, 2) : 'N/A';
@@ -249,51 +257,5 @@ class Transaction extends Model
     public function getFormattedPriceAttribute(): string
     {
         return $this->final_price ? '৳' . number_format($this->final_price, 2) : 'N/A';
-    }
-
-    /**
-     * Get status label for UI
-     */
-    public function getStatusLabel(): string
-    {
-        return match($this->status) {
-            'pending' => 'Pending',
-            'active' => 'Active',
-            'completed' => 'Completed',
-            'late' => 'Late',
-            'cancelled' => 'Cancelled',
-            default => 'Unknown'
-        };
-    }
-
-    /**
-     * Get status badge color
-     */
-    public function getStatusBadgeColor(): string
-    {
-        return match($this->status) {
-            'pending' => 'yellow',
-            'active' => 'blue',
-            'completed' => 'green',
-            'late' => 'red',
-            'cancelled' => 'gray',
-            default => 'gray'
-        };
-    }
-
-    /**
-     * Check if transaction can be rated
-     */
-    public function canBeRated(): bool
-    {
-        return in_array($this->status, ['completed', 'late']);
-    }
-
-    /**
-     * Get average rating for this transaction
-     */
-    public function averageRating(): float
-    {
-        return $this->ratings()->avg('rating') ?? 0.0;
     }
 }

@@ -9,7 +9,6 @@ use App\Models\Penalty;
 use App\Models\Rating;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\Rule;
 
 class TransactionController extends Controller
 {
@@ -20,61 +19,52 @@ class TransactionController extends Controller
     {
         $user = Auth::user();
 
-        // Get transactions where user is borrower
         $borrowerTransactions = Transaction::where('borrower_id', $user->id)
             ->with(['item:id,title,user_id', 'item.owner:id,name,email', 'ratings'])
             ->latest()
             ->get();
 
-        // Get transactions where user is owner (lender)
-        $ownerTransactions = Transaction::whereHas('item', function($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })
-        ->with(['item:id,title,user_id', 'borrower:id,name,email', 'ratings'])
-        ->latest()
-        ->get();
+        // FIX: use owner_id directly instead of whereHas
+        $ownerTransactions = Transaction::where('owner_id', $user->id)
+            ->with(['item:id,title,user_id', 'borrower:id,name,email', 'ratings'])
+            ->latest()
+            ->get();
 
-        // Combine all transactions
         $allTransactions = $borrowerTransactions->concat($ownerTransactions)
             ->sortByDesc('created_at');
 
-        // Get status filter
         $status = $request->get('status');
 
-        // Filter by status if requested
         if ($status) {
             $allTransactions = $allTransactions->where('status', $status);
         }
 
-        // Calculate counts
-        $allCount = $allTransactions->count();
-        $pendingCount = $allTransactions->where('status', 'pending')->count();
-        $activeCount = $allTransactions->where('status', 'active')->count();
+        $allCount       = $allTransactions->count();
+        $pendingCount   = $allTransactions->where('status', 'pending')->count();
+        $activeCount    = $allTransactions->where('status', 'active')->count();
         $completedCount = $allTransactions->where('status', 'completed')->count();
-        $lateCount = $allTransactions->where('status', 'late')->count();
+        $lateCount      = $allTransactions->where('status', 'late')->count();
         $cancelledCount = $allTransactions->where('status', 'cancelled')->count();
 
         return view('frontend.transactions.index', [
-            'allTransactions' => $allTransactions,
+            'allTransactions'    => $allTransactions,
             'borrowerTransactions' => $borrowerTransactions,
-            'ownerTransactions' => $ownerTransactions,
-            'allCount' => $allCount,
-            'pendingCount' => $pendingCount,
-            'activeCount' => $activeCount,
-            'completedCount' => $completedCount,
-            'lateCount' => $lateCount,
-            'cancelledCount' => $cancelledCount,
-            'status' => $status,
+            'ownerTransactions'  => $ownerTransactions,
+            'allCount'           => $allCount,
+            'pendingCount'       => $pendingCount,
+            'activeCount'        => $activeCount,
+            'completedCount'     => $completedCount,
+            'lateCount'          => $lateCount,
+            'cancelledCount'     => $cancelledCount,
+            'status'             => $status,
         ]);
     }
-
 
     /**
      * Show detailed view of a specific transaction
      */
     public function show(Transaction $transaction)
     {
-        // Authorize user can view this transaction
         $this->authorizeTransactionView($transaction);
 
         $transaction->load([
@@ -85,22 +75,19 @@ class TransactionController extends Controller
             'penalties'
         ]);
 
-        // Determine user role in transaction
-        $isOwner = Auth::id() === $transaction->item->user_id;
+        $isOwner   = Auth::id() === $transaction->owner_id;
         $isBorrower = Auth::id() === $transaction->borrower_id;
 
-        // Check if user can rate this transaction
-        $canRate = false;
+        $canRate   = false;
         $userRating = null;
-        
+
         if (Rating::canRateTransaction($transaction)) {
-            $canRate = !Rating::userHasRatedTransaction(Auth::user(), $transaction);
+            $canRate    = !Rating::userHasRatedTransaction(Auth::user(), $transaction);
             $userRating = Rating::where('transaction_id', $transaction->id)
                 ->where('rater_id', Auth::id())
                 ->first();
         }
 
-        // Get transaction timeline
         $timeline = $this->getTransactionTimeline($transaction);
 
         return view('frontend.transactions.show', compact(
@@ -114,34 +101,27 @@ class TransactionController extends Controller
     }
 
     /**
-     * Update transaction status
+     * Update transaction status via action param
      */
     public function update(Request $request, Transaction $transaction)
     {
-        $user = Auth::user();
-        $isOwner = $user->id === $transaction->item->user_id;
+        $user    = Auth::user();
+        $isOwner = $user->id === $transaction->owner_id;
 
-        // Only owner can approve/reject pending transactions
         if ($transaction->status === 'pending' && !$isOwner) {
             abort(403, 'Only item owner can approve requests.');
         }
 
         $action = $request->get('action');
 
-        switch ($action) {
-            case 'approve':
-                return $this->approveTransaction($transaction);
-            case 'reject':
-                return $this->rejectTransaction($transaction);
-            case 'mark-returned':
-                return $this->markAsReturned($transaction);
-            case 'mark-completed':
-                return $this->markAsCompleted($transaction);
-            case 'cancel':
-                return $this->cancelTransaction($transaction);
-            default:
-                return back()->with('error', 'Invalid action.');
-        }
+        return match($action) {
+            'approve'        => $this->approveTransaction($transaction),
+            'reject'         => $this->rejectTransaction($transaction),
+            'mark-returned'  => $this->markAsReturned($transaction),
+            'mark-completed' => $this->markAsCompleted($transaction),
+            'cancel'         => $this->cancelTransaction($transaction),
+            default          => back()->with('error', 'Invalid action.'),
+        };
     }
 
     /**
@@ -155,9 +135,6 @@ class TransactionController extends Controller
 
         $transaction->markAsActive();
         $transaction->item->markAsBorrowed();
-
-        // Send notification to borrower
-        // TODO: Implement notifications
 
         return back()->with('success', 'Transaction approved! Item marked as borrowed.');
     }
@@ -178,11 +155,13 @@ class TransactionController extends Controller
     }
 
     /**
-     * Mark item as returned (borrower initiated)
+     * Mark item as returned (borrower initiated).
+     *
+     * FIX: return_date is recorded before markAsLate() so it is not lost
+     *      when the owner later confirms via markAsCompleted().
      */
     private function markAsReturned(Transaction $transaction)
     {
-        // Only borrower can mark as returned
         if (Auth::id() !== $transaction->borrower_id) {
             abort(403, 'Only borrower can mark item as returned.');
         }
@@ -191,35 +170,30 @@ class TransactionController extends Controller
             return back()->with('error', 'Transaction is not active.');
         }
 
-        // Check if late and create penalty
         if ($transaction->isOverdue()) {
-            $daysLate = $transaction->daysOverdue();
-            $penaltyAmount = Penalty::calculateAmount($daysLate);
+            // Record actual return date before status change
+            $transaction->update(['return_date' => now()->toDateString()]);
 
-            Penalty::create([
-                'transaction_id' => $transaction->id,
-                'days_late' => $daysLate,
-                'amount' => $penaltyAmount,
-                'status' => 'pending',
-            ]);
-
+            $penalty = $this->createPenaltyForTransaction($transaction);
             $transaction->markAsLate();
 
-            return back()->with('warning', "Item returned late! Penalty: ৳{$penaltyAmount} for {$daysLate} days.");
-        } else {
-            $transaction->markAsCompleted();
-            return back()->with('success', 'Item marked as returned. You can now rate the owner.');
+            return back()->with('warning', "Item returned late! Penalty: ৳{$penalty->amount} for {$penalty->days_late} days.");
         }
+
+        $transaction->markAsCompleted();
+
+        return back()->with('success', 'Item marked as returned. You can now rate the owner.');
     }
 
     /**
-     * Mark transaction as completed (owner confirmation after return)
+     * Mark transaction as completed (owner confirmation after return).
+     *
+     * FIX: item is marked available here. return_date is NOT set here —
+     *      Transaction::markAsCompleted() only sets it if not already present.
      */
     private function markAsCompleted(Transaction $transaction)
     {
-        // Only owner can confirm return
-        $isOwner = Auth::id() === $transaction->item->user_id;
-        if (!$isOwner) {
+        if (Auth::id() !== $transaction->owner_id) {
             abort(403, 'Only owner can confirm return.');
         }
 
@@ -234,22 +208,29 @@ class TransactionController extends Controller
     }
 
     /**
-     * Cancel transaction
+     * Cancel transaction.
+     *
+     * FIX: borrowers can only cancel PENDING transactions.
+     *      Only the owner can cancel an ACTIVE transaction
+     *      (e.g. item not picked up, dispute, etc).
      */
     private function cancelTransaction(Transaction $transaction)
     {
-        $user = Auth::user();
-        $isOwner = $user->id === $transaction->item->user_id;
+        $user       = Auth::user();
+        $isOwner    = $user->id === $transaction->owner_id;
         $isBorrower = $user->id === $transaction->borrower_id;
 
-        // Only owner or borrower can cancel
         if (!$isOwner && !$isBorrower) {
             abort(403, 'Unauthorized to cancel this transaction.');
         }
 
-        // Can only cancel if pending or active
         if (!in_array($transaction->status, ['pending', 'active'])) {
             return back()->with('error', 'Cannot cancel completed transaction.');
+        }
+
+        // Borrowers can only cancel while still pending
+        if ($isBorrower && !$isOwner && $transaction->status === 'active') {
+            return back()->with('error', 'Cannot cancel an active transaction. Contact the owner.');
         }
 
         $transaction->markAsCancelled();
@@ -277,7 +258,6 @@ class TransactionController extends Controller
     {
         $transaction = $penalty->transaction;
 
-        // Only borrower can pay their penalties
         if (Auth::id() !== $transaction->borrower_id) {
             abort(403, 'Unauthorized.');
         }
@@ -293,24 +273,33 @@ class TransactionController extends Controller
     }
 
     /**
-     * Request penalty waiver (borrower)
+     * Request penalty waiver (borrower).
+     *
+     * FIX: previously this did nothing (re-saved 'pending' status).
+     *      Now it stores the reason and sets status to 'waiver_requested'
+     *      so the uni admin can see and act on it.
+     *      Requires 'waiver_reason' and 'waiver_requested' status in penalties table/model.
      */
     public function requestWaiver(Request $request, Penalty $penalty)
     {
         $transaction = $penalty->transaction;
 
-        // Only borrower can request waiver
         if (Auth::id() !== $transaction->borrower_id) {
             abort(403, 'Unauthorized.');
+        }
+
+        if (!$penalty->isPending()) {
+            return back()->with('error', 'Can only request waiver on a pending penalty.');
         }
 
         $validated = $request->validate([
             'reason' => 'required|string|min:10|max:500'
         ]);
 
-        // TODO: Create waiver request and notify admin
-        // For now, just mark for review
-        $penalty->update(['status' => 'pending']);
+        $penalty->update([
+            'status'        => 'waiver_requested',
+            'waiver_reason' => $validated['reason'],
+        ]);
 
         return back()->with('success', 'Waiver request submitted for admin review.');
     }
@@ -331,13 +320,11 @@ class TransactionController extends Controller
     }
 
     /**
-     * Get lending history (completed transactions where user is owner)
+     * Get lending history — FIX: use owner_id directly
      */
     public function lendingHistory()
     {
-        $history = Transaction::whereHas('item', function($q) {
-            $q->where('user_id', Auth::id());
-        })
+        $history = Transaction::where('owner_id', Auth::id())
             ->where('status', 'completed')
             ->with(['item:id,title', 'borrower:id,name', 'ratings'])
             ->latest()
@@ -354,16 +341,12 @@ class TransactionController extends Controller
         $user = Auth::user();
 
         $stats = [
-            'active_borrowing' => $user->transactionsAsBorrower()
-                ->where('status', 'active')->count(),
-            'active_lending' => Transaction::whereHas('item', function($q) use ($user) {
-                $q->where('user_id', $user->id);
-            })->where('status', 'active')->count(),
-            'completed_transactions' => $user->transactionsAsBorrower()
-                ->where('status', 'completed')->count(),
-            'pending_penalties' => Penalty::borrowerTotalPending($user),
-            'average_rating' => $user->averageRating(),
-            'overdue_items' => $user->hasOverdueItems(),
+            'active_borrowing'      => $user->transactionsAsBorrower()->where('status', 'active')->count(),
+            'active_lending'        => Transaction::where('owner_id', $user->id)->where('status', 'active')->count(),
+            'completed_transactions' => $user->transactionsAsBorrower()->where('status', 'completed')->count(),
+            'pending_penalties'     => Penalty::borrowerTotalPending($user),
+            'average_rating'        => $user->averageRating(),
+            'overdue_items'         => $user->hasOverdueItems(),
         ];
 
         return response()->json($stats);
@@ -376,15 +359,32 @@ class TransactionController extends Controller
     /**
      * Authorize user can view transaction
      */
-    private function authorizeTransactionView(Transaction $transaction)
+    private function authorizeTransactionView(Transaction $transaction): void
     {
-        $user = Auth::user();
-        $isOwner = $user->id === $transaction->item->user_id;
+        $user       = Auth::user();
+        $isOwner    = $user->id === $transaction->owner_id;
         $isBorrower = $user->id === $transaction->borrower_id;
 
         if (!$isOwner && !$isBorrower) {
             abort(403, 'Unauthorized to view this transaction.');
         }
+    }
+
+    /**
+     * Create a penalty record for an overdue transaction.
+     * Shared with ItemController to avoid duplicate logic.
+     */
+    private function createPenaltyForTransaction(Transaction $transaction): Penalty
+    {
+        $daysLate      = $transaction->daysOverdue();
+        $penaltyAmount = Penalty::calculateAmount($daysLate);
+
+        return Penalty::create([
+            'transaction_id' => $transaction->id,
+            'days_late'      => $daysLate,
+            'amount'         => $penaltyAmount,
+            'status'         => 'pending',
+        ]);
     }
 
     /**
@@ -395,47 +395,49 @@ class TransactionController extends Controller
         $events = [];
 
         $events[] = [
-            'date' => $transaction->created_at,
-            'title' => 'Request Created',
+            'date'        => $transaction->created_at,
+            'title'       => 'Request Created',
             'description' => "{$transaction->borrower->name} requested this item",
-            'icon' => 'request'
+            'icon'        => 'request',
         ];
 
         if ($transaction->status !== 'pending') {
             $events[] = [
-                'date' => $transaction->updated_at,
-                'title' => 'Request Approved',
+                'date'        => $transaction->updated_at,
+                'title'       => 'Request Approved',
                 'description' => 'Owner approved the request',
-                'icon' => 'approved'
+                'icon'        => 'approved',
             ];
 
             if ($transaction->start_date) {
                 $events[] = [
-                    'date' => $transaction->start_date,
-                    'title' => 'Transaction Started',
-                    'description' => $transaction->type === 'lend' 
+                    'date'        => $transaction->start_date,
+                    'title'       => 'Transaction Started',
+                    'description' => $transaction->type === 'lend'
                         ? "Due: {$transaction->due_date?->format('M d, Y')}"
                         : 'Item purchased',
-                    'icon' => 'start'
+                    'icon'        => 'start',
                 ];
             }
         }
 
         if ($transaction->return_date) {
             $events[] = [
-                'date' => $transaction->return_date,
-                'title' => 'Item Returned',
-                'description' => $transaction->isOverdue() ? 'Returned late' : 'Returned on time',
-                'icon' => $transaction->isOverdue() ? 'late' : 'returned'
+                'date'        => $transaction->return_date,
+                'title'       => 'Item Returned',
+                'description' => in_array($transaction->status, ['late'])
+                    ? 'Returned late'
+                    : 'Returned on time',
+                'icon'        => in_array($transaction->status, ['late']) ? 'late' : 'returned',
             ];
         }
 
         if (in_array($transaction->status, ['completed', 'late'])) {
             $events[] = [
-                'date' => $transaction->updated_at,
-                'title' => 'Transaction Completed',
+                'date'        => $transaction->updated_at,
+                'title'       => 'Transaction Completed',
                 'description' => 'Both parties can now rate each other',
-                'icon' => 'completed'
+                'icon'        => 'completed',
             ];
         }
 

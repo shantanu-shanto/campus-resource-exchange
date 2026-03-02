@@ -197,11 +197,19 @@
 
     <!-- Main Content -->
     <main>
-        @if ($errors->any())
+
+        {{--
+            FIX: was $errors->any() which catches ALL error bags including
+            named ones like 'updatePassword' from PasswordController.
+            This caused double error display on the profile password page —
+            errors appeared here AND in the inline field validation.
+            Now only the default bag is shown globally.
+        --}}
+        @if ($errors->getBag('default')->any())
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 <strong><i class="bi bi-exclamation-triangle"></i> Error!</strong>
                 <ul class="mb-0 mt-2">
-                    @foreach ($errors->all() as $error)
+                    @foreach ($errors->getBag('default')->all() as $error)
                         <li>{{ $error }}</li>
                     @endforeach
                 </ul>
@@ -230,6 +238,13 @@
             </div>
         @endif
 
+        @if (session('error'))
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-x-circle"></i> {{ session('error') }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+
         <div class="container-main">
             @yield('content')
         </div>
@@ -241,7 +256,6 @@
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- Vanilla JS -->
     <script>
         // Auto-close alerts after 5 seconds
         document.addEventListener('DOMContentLoaded', function() {
@@ -254,7 +268,7 @@
             });
         });
 
-        // CSRF Token
+        // CSRF Token available globally for JS fetch calls
         const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     </script>
 

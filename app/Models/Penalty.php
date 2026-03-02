@@ -10,11 +10,6 @@ class Penalty extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'transaction_id',
         'days_late',
@@ -22,16 +17,11 @@ class Penalty extends Model
         'status',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
             'days_late' => 'integer',
-            'amount' => 'decimal:2',
+            'amount'    => 'decimal:2',
         ];
     }
 
@@ -48,60 +38,69 @@ class Penalty extends Model
     }
 
     /**
-     * The borrower who owes this penalty
+     * The borrower who owes this penalty — through transaction
      */
     public function borrower()
     {
-        return $this->belongsTo(User::class, 'borrower_id')->via('transaction');
+        return $this->hasOneThrough(
+            User::class,
+            Transaction::class,
+            'id',          // FK on transactions (transaction.id)
+            'id',          // FK on users (user.id)
+            'transaction_id', // local key on penalties
+            'borrower_id'  // local key on transactions pointing to user
+        );
     }
 
     /**
-     * The item owner (lender)
+     * The item owner (lender) — through transaction
      */
-    public function lender()
+    public function owner()
     {
-        return $this->belongsTo(User::class, 'user_id')->via('transaction.item');
+        return $this->hasOneThrough(
+            User::class,
+            Transaction::class,
+            'id',
+            'id',
+            'transaction_id',
+            'owner_id'     // direct owner_id on transaction (our new column)
+        );
     }
 
     /**
-     * The item that was returned late
+     * The item that was returned late — through transaction
      */
     public function item()
     {
-        return $this->belongsTo(Item::class, 'item_id')->via('transaction');
+        return $this->hasOneThrough(
+            Item::class,
+            Transaction::class,
+            'id',
+            'id',
+            'transaction_id',
+            'item_id'
+        );
     }
 
     // ========================================
-    // Scope Methods
+    // Scopes
     // ========================================
 
-    /**
-     * Scope: Pending penalties (unpaid)
-     */
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
     }
 
-    /**
-     * Scope: Paid penalties
-     */
     public function scopePaid($query)
     {
         return $query->where('status', 'paid');
     }
 
-    /**
-     * Scope: Waived penalties
-     */
     public function scopeWaived($query)
     {
         return $query->where('status', 'waived');
     }
 
-    /**
-     * Scope: Penalties for specific borrower
-     */
     public function scopeForBorrower($query, User $user)
     {
         return $query->whereHas('transaction', function ($q) use ($user) {
@@ -109,165 +108,116 @@ class Penalty extends Model
         });
     }
 
-    /**
-     * Scope: High value penalties
-     */
-    public function scopeHighValue($query, $minAmount = 100)
+    public function scopeHighValue($query, float $minAmount = 100)
     {
         return $query->where('amount', '>=', $minAmount);
     }
 
-    /**
-     * Scope: Recent penalties (last 30 days)
-     */
     public function scopeRecent($query)
     {
         return $query->where('created_at', '>=', Carbon::now()->subDays(30));
     }
 
+    /**
+     * Scope: Penalties within a university (for uni admin scoping)
+     */
+    public function scopeForUniversity($query, int $universityId)
+    {
+        return $query->whereHas('transaction.item', function ($q) use ($universityId) {
+            $q->where('university_id', $universityId);
+        });
+    }
+
     // ========================================
-    // Helper Methods
+    // Status Helpers
     // ========================================
 
-    /**
-     * Check if penalty is pending payment
-     */
     public function isPending(): bool
     {
         return $this->status === 'pending';
     }
 
-    /**
-     * Check if penalty has been paid
-     */
     public function isPaid(): bool
     {
         return $this->status === 'paid';
     }
 
-    /**
-     * Check if penalty was waived
-     */
     public function isWaived(): bool
     {
         return $this->status === 'waived';
     }
 
-    /**
-     * Mark penalty as paid
-     */
     public function markAsPaid(): bool
     {
         return $this->update(['status' => 'paid']);
     }
 
-    /**
-     * Mark penalty as waived
-     */
     public function markAsWaived(): bool
     {
         return $this->update(['status' => 'waived']);
     }
 
-    /**
-     * Calculate penalty amount based on days late
-     * (e.g., ৳50 per day late)
-     */
-    public static function calculateAmount(int $daysLate): float
-    {
-        return $daysLate * 50.00; // ৳50 per day
-    }
+    // ========================================
+    // Calculation Helpers
+    // ========================================
 
     /**
-     * Get formatted penalty amount
+     * Calculate penalty amount — ৳50 per day late
      */
-    public function getFormattedAmountAttribute(): string
+    public static function calculateAmount(int $daysLate, float $ratePerDay = 50.00): float
     {
-        return '৳' . number_format($this->amount, 2);
+        return $daysLate * $ratePerDay;
     }
 
-    /**
-     * Get status label for UI
-     */
-    public function getStatusLabel(): string
-    {
-        return match($this->status) {
-            'pending' => 'Pending',
-            'paid' => 'Paid',
-            'waived' => 'Waived',
-            default => 'Unknown'
-        };
-    }
-
-    /**
-     * Get status badge color
-     */
-    public function getStatusBadgeColor(): string
-    {
-        return match($this->status) {
-            'pending' => 'orange',
-            'paid' => 'green',
-            'waived' => 'blue',
-            default => 'gray'
-        };
-    }
-
-    /**
-     * Check if penalty is overdue for payment (e.g., 7 days after due date)
-     */
-    public function isPaymentOverdue(): bool
-    {
-        if (!$this->isPending()) {
-            return false;
-        }
-        return $this->transaction->due_date
-            ? Carbon::parse($this->transaction->due_date)->addDays(7)->lt(Carbon::today())
-            : false;
-    }
-
-    /**
-     * Get days since penalty was issued
-     */
-    public function daysSinceIssued(): int
-    {
-        return Carbon::today()->diffInDays($this->created_at);
-    }
-
-    /**
-     * Get borrower total pending penalties
-     */
     public static function borrowerTotalPending(User $borrower): float
     {
-        return self::forBorrower($borrower)
-            ->pending()
-            ->sum('amount');
+        return self::forBorrower($borrower)->pending()->sum('amount');
     }
 
-    /**
-     * Check if borrower has any pending penalties
-     */
     public static function borrowerHasPending(User $borrower): bool
     {
         return self::forBorrower($borrower)->pending()->exists();
     }
 
-    /**
-     * Prevent borrower from creating new transactions if they have unpaid penalties
-     */
-    public static function borrowerCanCreateTransaction(User $borrower): bool
+    public function isPaymentOverdue(): bool
     {
-        return !self::borrowerHasPending($borrower);
+        if (!$this->isPending()) return false;
+        return $this->transaction->due_date
+            ? Carbon::parse($this->transaction->due_date)->addDays(7)->lt(Carbon::today())
+            : false;
     }
 
-    /**
-     * Get display info for admin dashboard
-     */
-    public function getAdminDisplayAttribute(): string
+    public function daysSinceIssued(): int
     {
-        $borrowerName = $this->borrower?->name ?? 'Unknown';
-        $itemTitle = $this->item?->title ?? 'Unknown Item';
-        $days = $this->days_late;
-        
-        return "{$this->formatted_amount} ({$days}d late) - {$borrowerName} for '{$itemTitle}'";
+        return Carbon::today()->diffInDays($this->created_at);
+    }
+
+    // ========================================
+    // Display Helpers
+    // ========================================
+
+    public function getFormattedAmountAttribute(): string
+    {
+        return '৳' . number_format($this->amount, 2);
+    }
+
+    public function getStatusLabel(): string
+    {
+        return match($this->status) {
+            'pending' => 'Pending',
+            'paid'    => 'Paid',
+            'waived'  => 'Waived',
+            default   => 'Unknown',
+        };
+    }
+
+    public function getStatusBadgeColor(): string
+    {
+        return match($this->status) {
+            'pending' => 'warning',
+            'paid'    => 'success',
+            'waived'  => 'info',
+            default   => 'secondary',
+        };
     }
 }

@@ -150,7 +150,7 @@
                         <div style="padding: 12px 0;">
                             <small class="text-muted">Total Ratings</small>
                             <h5 style="color: #0d6efd; font-weight: 700; margin: 5px 0;">
-                                {{ auth()->user()->ratingsReceived->count() }}
+                                {{ auth()->user()->ratingsReceived()->count() }}
                             </h5>
                         </div>
                     </div>
@@ -362,8 +362,9 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form method="POST" action="{{ route('frontend.profile.delete.confirm') }}" style="display: inline;">
+                <form method="POST" action="{{ route('frontend.profile.delete') }}" style="display: inline;">
                     @csrf
+                    @method('DELETE')
                     <button type="submit" class="btn btn-danger" id="deleteConfirmBtn" disabled>
                         Delete Account
                     </button>
