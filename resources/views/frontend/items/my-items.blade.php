@@ -33,7 +33,8 @@
                             
                             <div class="mb-3">
                                 <span class="badge bg-info">{{ $item->getAvailabilityModeLabel() }}</span>
-                                @if ($item->requiresPrice())
+                                {{-- ✅ use what actually exists on the model --}}
+                                @if (in_array($item->availability_mode, ['sell', 'both']) && $item->price)
                                     <span class="badge bg-success">{{ $item->formatted_price }}</span>
                                 @endif
                             </div>

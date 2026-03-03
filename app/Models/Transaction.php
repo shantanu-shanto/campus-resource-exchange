@@ -251,11 +251,11 @@ class Transaction extends Model
 
     public function getFormattedDepositAttribute(): string
     {
-        return $this->deposit_amount ? '৳' . number_format($this->deposit_amount, 2) : 'N/A';
+        return $this->deposit_amount ? '₹' . number_format($this->deposit_amount, 2) : 'N/A';
     }
 
     public function getFormattedPriceAttribute(): string
     {
-        return $this->final_price ? '৳' . number_format($this->final_price, 2) : 'N/A';
+        return $this->final_price ? '₹' . number_format($this->final_price, 2) : 'N/A';
     }
 }

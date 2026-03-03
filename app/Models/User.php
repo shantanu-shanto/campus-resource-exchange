@@ -93,10 +93,8 @@ class User extends Authenticatable
     {
         $asOwner    = Transaction::where('owner_id', $this->id)->pluck('id');
         $asBorrower = Transaction::where('borrower_id', $this->id)->pluck('id');
-
         $transactionIds = $asOwner->merge($asBorrower)->unique();
 
-        // Return ratings on those transactions, excluding ones this user gave themselves
         return Rating::whereIn('transaction_id', $transactionIds)
                     ->where('rater_id', '!=', $this->id);
     }

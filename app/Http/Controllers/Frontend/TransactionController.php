@@ -177,7 +177,7 @@ class TransactionController extends Controller
             $penalty = $this->createPenaltyForTransaction($transaction);
             $transaction->markAsLate();
 
-            return back()->with('warning', "Item returned late! Penalty: ৳{$penalty->amount} for {$penalty->days_late} days.");
+            return back()->with('warning', "Item returned late! Penalty: ₹{$penalty->amount} for {$penalty->days_late} days.");
         }
 
         $transaction->markAsCompleted();
@@ -269,7 +269,7 @@ class TransactionController extends Controller
         // TODO: Integrate with payment gateway
         $penalty->markAsPaid();
 
-        return back()->with('success', "Penalty of ৳{$penalty->amount} paid successfully!");
+        return back()->with('success', "Penalty of ₹{$penalty->amount} paid successfully!");
     }
 
     /**

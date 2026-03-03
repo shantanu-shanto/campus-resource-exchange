@@ -136,7 +136,8 @@
                                         <br>
                                         <small class="text-muted">
                                             <i class="bi bi-star-fill" style="color: #ffc107;"></i>
-                                            {{ round($item->owner->averageRating(), 1) }} ({{ $item->owner->ratingsReceived->count() }})
+                                            {{-- ✅ ->ratingsReceived() (with parentheses) = calls the method directly --}}
+                                            {{ $item->owner->ratingsReceived()->count() }}
                                         </small>
                                     </div>
                                 </div>
@@ -146,7 +147,7 @@
                                     <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 15px;">
                                         <small class="text-muted">Price</small>
                                         <h6 style="color: #0d6efd; font-weight: 700; margin: 0;">
-                                            ৳{{ $item->price }}
+                                            ₹{{ $item->price }}
                                         </h6>
                                     </div>
                                 @endif

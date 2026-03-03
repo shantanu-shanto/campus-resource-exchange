@@ -69,7 +69,7 @@
                         <div class="col-md-6 mb-3">
                             <small class="text-muted">Price</small>
                             <p style="color: #0d6efd; font-weight: 700; font-size: 1.2rem; margin: 5px 0;">
-                                ৳{{ $item->price }}
+                                ₹{{ $item->price }}
                             </p>
                         </div>
                     @endif
@@ -101,7 +101,7 @@
                         <div style="margin-top: 10px;">
                             <i class="bi bi-star-fill" style="color: #ffc107;"></i>
                             <strong>{{ number_format($item->owner->averageRating(), 1) }} / 5.0</strong>
-                            <small class="text-muted">({{ $item->owner->ratingsReceived?->count() ?? 0 }} ratings)</small>
+                            <small class="text-muted">({{ $item->owner->ratingsReceived()->count() }} ratings)</small>
                         </div>
                     </div>
                 </div>
@@ -110,7 +110,7 @@
                     <div class="col-6">
                         <small class="text-muted">Items Listed</small>
                         <h6 style="color: #333; font-weight: 700; margin: 5px 0;">
-                            {{ $item->owner->items?->count() ?? 0 }}
+                            {{ $item->owner->items()->count() }}
                         </h6>
                     </div>
                     <div class="col-6">
@@ -281,7 +281,7 @@
                         <input type="hidden" name="type" value="sell">
                         <div class="modal-body">
                             <p style="color: #666; margin-bottom: 15px;">
-                                Price: <strong style="font-size: 1.2rem; color: #0d6efd;">৳{{ $item->price }}</strong>
+                                Price: <strong style="font-size: 1.2rem; color: #0d6efd;">₹{{ $item->price }}</strong>
                             </p>
                             <div class="mb-3">
                                 <label class="form-label">Message to Seller</label>

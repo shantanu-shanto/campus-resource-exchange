@@ -94,15 +94,16 @@
                     @endif
 
                     <!-- Upload New Image -->
+                    {{-- FIX: name changed from "image" to "item_image" to match controller validation --}}
                     <div class="mb-3">
                         <label class="form-label">Replace Photo (Optional)</label>
                         <div class="input-group mb-3">
-                            <input type="file" name="image" class="form-control @error('image') is-invalid @enderror"
+                            <input type="file" name="item_image" class="form-control @error('item_image') is-invalid @enderror"
                                 id="imageInput" accept="image/*">
                             <label class="input-group-text" for="imageInput">
                                 <i class="bi bi-cloud-upload"></i>
                             </label>
-                            @error('image')
+                            @error('item_image')
                                 <span class="invalid-feedback">{{ $message }}</span>
                             @enderror
                         </div>
@@ -122,6 +123,22 @@
                     <i class="bi bi-tag"></i> Availability & Pricing
                 </div>
                 <div class="card-body">
+
+                    {{-- FIX: availability_mode field was missing entirely — added here --}}
+                    <!-- Availability Mode -->
+                    <div class="mb-3">
+                        <label class="form-label">Availability Mode *</label>
+                        <select name="availability_mode" class="form-select @error('availability_mode') is-invalid @enderror" required>
+                            <option value="lend"  {{ old('availability_mode', $item->availability_mode) === 'lend'  ? 'selected' : '' }}>Lend Only</option>
+                            <option value="sell"  {{ old('availability_mode', $item->availability_mode) === 'sell'  ? 'selected' : '' }}>Sell Only</option>
+                            <option value="both"  {{ old('availability_mode', $item->availability_mode) === 'both'  ? 'selected' : '' }}>Lend & Sell</option>
+                            <option value="share" {{ old('availability_mode', $item->availability_mode) === 'share' ? 'selected' : '' }}>Free / Share</option>
+                        </select>
+                        @error('availability_mode')
+                            <span class="invalid-feedback">{{ $message }}</span>
+                        @enderror
+                    </div>
+
                     <!-- Status (disabled if has active transactions) -->
                     @php
                         $hasActiveTransactions = $item->transactions->where('status', 'active')->count() > 0;
@@ -132,8 +149,8 @@
                         <select name="status" class="form-select @error('status') is-invalid @enderror"
                             {{ $hasActiveTransactions ? 'disabled' : '' }}>
                             <option value="available" {{ old('status', $item->status) === 'available' ? 'selected' : '' }}>Available</option>
-                            <option value="borrowed" {{ old('status', $item->status) === 'borrowed' ? 'selected' : '' }}>Borrowed</option>
-                            <option value="sold" {{ old('status', $item->status) === 'sold' ? 'selected' : '' }}>Sold</option>
+                            <option value="borrowed"  {{ old('status', $item->status) === 'borrowed'  ? 'selected' : '' }}>Borrowed</option>
+                            <option value="sold"      {{ old('status', $item->status) === 'sold'      ? 'selected' : '' }}>Sold</option>
                         </select>
                         @if ($hasActiveTransactions)
                             <small class="text-warning">Cannot change status while item has active transactions</small>
@@ -147,7 +164,7 @@
                     <div class="mb-3">
                         <label class="form-label">Maximum Lending Duration (days)</label>
                         <input type="number" name="lending_duration_days" class="form-control @error('lending_duration_days') is-invalid @enderror"
-                            min="1" max="365" value="{{ old('lending_duration_days', $item->lending_duration_days) }}">
+                            min="1" max="30" value="{{ old('lending_duration_days', $item->lending_duration_days) }}">
                         @error('lending_duration_days')
                             <span class="invalid-feedback">{{ $message }}</span>
                         @enderror
@@ -157,7 +174,7 @@
                     <div class="mb-3">
                         <label class="form-label">Price (BDT)</label>
                         <div class="input-group">
-                            <span class="input-group-text">৳</span>
+                            <span class="input-group-text">₹</span>
                             <input type="number" name="price" class="form-control @error('price') is-invalid @enderror"
                                 min="0" step="10" value="{{ old('price', $item->price) }}">
                         </div>
@@ -189,10 +206,10 @@
                         <label class="form-label">Preferred Meeting Times</label>
                         <select name="meeting_times" class="form-select @error('meeting_times') is-invalid @enderror">
                             <option value="">Select preferred times</option>
-                            <option value="morning" {{ old('meeting_times', $item->meeting_times) === 'morning' ? 'selected' : '' }}>Morning (6am - 12pm)</option>
+                            <option value="morning"   {{ old('meeting_times', $item->meeting_times) === 'morning'   ? 'selected' : '' }}>Morning (6am - 12pm)</option>
                             <option value="afternoon" {{ old('meeting_times', $item->meeting_times) === 'afternoon' ? 'selected' : '' }}>Afternoon (12pm - 6pm)</option>
-                            <option value="evening" {{ old('meeting_times', $item->meeting_times) === 'evening' ? 'selected' : '' }}>Evening (6pm - 10pm)</option>
-                            <option value="flexible" {{ old('meeting_times', $item->meeting_times) === 'flexible' ? 'selected' : '' }}>Flexible</option>
+                            <option value="evening"   {{ old('meeting_times', $item->meeting_times) === 'evening'   ? 'selected' : '' }}>Evening (6pm - 10pm)</option>
+                            <option value="flexible"  {{ old('meeting_times', $item->meeting_times) === 'flexible'  ? 'selected' : '' }}>Flexible</option>
                         </select>
                         @error('meeting_times')
                             <span class="invalid-feedback">{{ $message }}</span>
@@ -286,7 +303,6 @@
 
 @section('extra-js')
 <script>
-    // Image preview
     document.getElementById('imageInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file) {

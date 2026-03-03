@@ -255,14 +255,13 @@ class SearchController extends Controller
      */
     public function byOwnerRating(Request $request)
     {
-        $minRating  = $request->get('min_rating', 3);
+        $minRating = $request->get('min_rating', 3);
         $itemsQuery = Item::query()
             ->with(['owner:id,name', 'ratings'])
             ->available()
             ->whereHas('owner', function ($q) use ($minRating) {
-                $q->withAvg('ratingsReceived', 'rating')
-                  ->having('ratingsReceived_avg_rating', '>=', $minRating);
-            });
+                $q->whereRaw('(SELECT AVG(rating) FROM ratings WHERE transaction_id IN (SELECT id FROM transactions WHERE owner_id = users.id OR borrower_id = users.id) AND rater_id != users.id) >= ?', [$minRating]);
+            }); // <-- ensure semicolon here
 
         $this->scopeToUniversity($itemsQuery);
 

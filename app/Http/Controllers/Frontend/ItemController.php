@@ -143,7 +143,7 @@ class ItemController extends Controller
         $validated = $request->validate([
             'title'             => 'required|string|max:255',
             'description'       => 'required|string|min:10|max:1000',
-            'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both'])],
+            'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both','share'])],
             'price' => [
                 'nullable', 'numeric', 'min:0', 'max:999999.99',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['sell', 'both']))
@@ -195,7 +195,7 @@ class ItemController extends Controller
         $validated = $request->validate([
             'title'             => 'required|string|max:255',
             'description'       => 'required|string|min:10|max:1000',
-            'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both'])],
+            'availability_mode' => ['required', Rule::in(['lend', 'sell', 'both','share'])],
             'price' => [
                 'nullable', 'numeric', 'min:0', 'max:999999.99',
                 Rule::requiredIf(fn() => in_array($request->availability_mode, ['sell', 'both']))

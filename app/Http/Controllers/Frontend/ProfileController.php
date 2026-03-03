@@ -21,9 +21,11 @@ class ProfileController extends Controller
      */
     public function show(User $user)
     {
+        // FIX: removed 'ratingsReceived.rater:id,name' from load() —
+        // ratingsReceived() returns a query builder, not a relationship,
+        // so it cannot be eager loaded via load() or with().
         $user->load([
             'items' => fn($q) => $q->available()->limit(6),
-            'ratingsReceived.rater:id,name',
         ]);
 
         // Profile stats
@@ -33,13 +35,13 @@ class ProfileController extends Controller
                 ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
                 ->where('status', 'completed')
                 ->count(),
-            'average_rating' => round($user->averageRating(), 2),
-            'total_ratings' => $user->ratingsReceived()->count(),
-            'member_since' => $user->created_at->format('F Y'),
+            'average_rating'   => round($user->averageRating(), 2),
+            'total_ratings'    => $user->ratingsReceived()->count(),
+            'member_since'     => $user->created_at->format('F Y'),
             'reputation_level' => $this->getReputationLevel($user),
         ];
 
-        // Recent ratings
+        // Recent ratings — called as method directly, works fine
         $recentRatings = $user->ratingsReceived()
             ->with('rater:id,name')
             ->latest()
@@ -83,17 +85,15 @@ class ProfileController extends Controller
         $user = Auth::user();
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-            'phone' => 'nullable|string|max:20',
-            'bio' => 'nullable|string|max:500',
-            'location' => 'nullable|string|max:255',
+            'name'          => 'required|string|max:255',
+            'email'         => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'phone'         => 'nullable|string|max:20',
+            'bio'           => 'nullable|string|max:500',
+            'location'      => 'nullable|string|max:255',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
-        // Handle profile image upload
         if ($request->hasFile('profile_image')) {
-            // Delete old image if exists
             if ($user->profile_image && Storage::disk('public')->exists($user->profile_image)) {
                 Storage::disk('public')->delete($user->profile_image);
             }
@@ -122,7 +122,7 @@ class ProfileController extends Controller
     {
         $validated = $request->validate([
             'current_password' => ['required', 'current_password'],
-            'password' => ['required', 'confirmed', Password::defaults()],
+            'password'         => ['required', 'confirmed', Password::defaults()],
         ]);
 
         Auth::user()->update([
@@ -141,11 +141,11 @@ class ProfileController extends Controller
         $user = Auth::user();
 
         $preferences = [
-            'email_notifications' => $user->email_notifications ?? true,
-            'sms_notifications' => $user->sms_notifications ?? false,
-            'push_notifications' => $user->push_notifications ?? true,
-            'show_email_publicly' => $user->show_email_publicly ?? false,
-            'show_phone_publicly' => $user->show_phone_publicly ?? false,
+            'email_notifications'    => $user->email_notifications ?? true,
+            'sms_notifications'      => $user->sms_notifications ?? false,
+            'push_notifications'     => $user->push_notifications ?? true,
+            'show_email_publicly'    => $user->show_email_publicly ?? false,
+            'show_phone_publicly'    => $user->show_phone_publicly ?? false,
             'allow_direct_messaging' => $user->allow_direct_messaging ?? true,
         ];
 
@@ -160,11 +160,11 @@ class ProfileController extends Controller
         $user = Auth::user();
 
         $validated = $request->validate([
-            'email_notifications' => 'boolean',
-            'sms_notifications' => 'boolean',
-            'push_notifications' => 'boolean',
-            'show_email_publicly' => 'boolean',
-            'show_phone_publicly' => 'boolean',
+            'email_notifications'    => 'boolean',
+            'sms_notifications'      => 'boolean',
+            'push_notifications'     => 'boolean',
+            'show_email_publicly'    => 'boolean',
+            'show_phone_publicly'    => 'boolean',
             'allow_direct_messaging' => 'boolean',
         ]);
 
@@ -194,14 +194,12 @@ class ProfileController extends Controller
     {
         $canViewFull = Auth::check() && (Auth::id() === $user->id || Auth::user()->isAdmin());
 
-        // Borrowing history
         $borrowingHistory = $user->transactionsAsBorrower()
             ->where('status', 'completed')
             ->with(['item:id,title,user_id', 'item.owner:id,name', 'ratings'])
             ->latest()
             ->paginate(10);
 
-        // Lending history
         $lendingHistory = Transaction::whereHas('item', fn($q) => $q->where('user_id', $user->id))
             ->where('status', 'completed')
             ->with(['item:id,title', 'borrower:id,name', 'ratings'])
@@ -222,26 +220,26 @@ class ProfileController extends Controller
     public function publicApi(User $user)
     {
         return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->show_email_publicly ? $user->email : null,
-            'phone' => $user->show_phone_publicly ? $user->phone : null,
-            'bio' => $user->bio,
-            'location' => $user->location,
-            'profile_image' => $user->profile_image 
-                ? asset("storage/{$user->profile_image}") 
+            'id'               => $user->id,
+            'name'             => $user->name,
+            'email'            => $user->show_email_publicly ? $user->email : null,
+            'phone'            => $user->show_phone_publicly ? $user->phone : null,
+            'bio'              => $user->bio,
+            'location'         => $user->location,
+            'profile_image'    => $user->profile_image
+                ? asset("storage/{$user->profile_image}")
                 : null,
-            'average_rating' => round($user->averageRating(), 2),
-            'total_ratings' => $user->ratingsReceived()->count(),
-            'member_since' => $user->created_at->format('F Y'),
+            'average_rating'   => round($user->averageRating(), 2),
+            'total_ratings'    => $user->ratingsReceived()->count(),
+            'member_since'     => $user->created_at->format('F Y'),
             'reputation_level' => $this->getReputationLevel($user),
-            'items_count' => $user->items()->count(),
-            'profile_url' => route('frontend.profile.show', $user),
+            'items_count'      => $user->items()->count(),
+            'profile_url'      => route('frontend.profile.show', $user),
         ]);
     }
 
     /**
-     * Delete user account
+     * Delete user account page
      */
     public function deleteAccount()
     {
@@ -255,12 +253,10 @@ class ProfileController extends Controller
     {
         $user = Auth::user();
 
-        // Verify password
-        $validated = $request->validate([
+        $request->validate([
             'password' => ['required', 'current_password'],
         ]);
 
-        // Check if user has active transactions
         $activeTransactions = Transaction::where('borrower_id', $user->id)
             ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
             ->whereIn('status', ['pending', 'active'])
@@ -270,28 +266,23 @@ class ProfileController extends Controller
             return back()->with('error', 'Cannot delete account with active transactions. Complete or cancel all transactions first.');
         }
 
-        // Delete profile image
         if ($user->profile_image && Storage::disk('public')->exists($user->profile_image)) {
             Storage::disk('public')->delete($user->profile_image);
         }
 
-        // Delete all item images
-        $items = $user->items()->get();
-        foreach ($items as $item) {
+        foreach ($user->items()->get() as $item) {
             if ($item->image_path && Storage::disk('public')->exists($item->image_path)) {
                 Storage::disk('public')->delete($item->image_path);
             }
         }
 
-        // Delete user and cascade delete related records
         $user->delete();
 
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/')
-            ->with('success', 'Your account has been deleted successfully.');
+        return redirect('/')->with('success', 'Your account has been deleted successfully.');
     }
 
     /**
@@ -320,36 +311,31 @@ class ProfileController extends Controller
             abort(403, 'Unauthorized to view these statistics.');
         }
 
-        // Transaction stats
         $stats = [
-            'total_borrowed' => $user->transactionsAsBorrower()->count(),
-            'total_lent' => Transaction::whereHas('item', fn($q) => $q->where('user_id', $user->id))->count(),
-            'completed_transactions' => Transaction::where('borrower_id', $user->id)
+            'total_borrowed'           => $user->transactionsAsBorrower()->count(),
+            'total_lent'               => Transaction::whereHas('item', fn($q) => $q->where('user_id', $user->id))->count(),
+            'completed_transactions'   => Transaction::where('borrower_id', $user->id)
                 ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
-                ->where('status', 'completed')
-                ->count(),
-            'cancelled_transactions' => Transaction::where('borrower_id', $user->id)
+                ->where('status', 'completed')->count(),
+            'cancelled_transactions'   => Transaction::where('borrower_id', $user->id)
                 ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
-                ->where('status', 'cancelled')
-                ->count(),
-            'average_rating_given' => round(Rating::where('rater_id', $user->id)->avg('rating'), 2),
-            'average_rating_received' => round($user->averageRating(), 2),
+                ->where('status', 'cancelled')->count(),
+            'average_rating_given'     => round(Rating::where('rater_id', $user->id)->avg('rating'), 2),
+            'average_rating_received'  => round($user->averageRating(), 2),
             'total_penalties_incurred' => Penalty::forBorrower($user)->count(),
-            'unpaid_penalties' => Penalty::borrowerTotalPending($user),
+            'unpaid_penalties'         => Penalty::borrowerTotalPending($user),
         ];
 
-        // Success rate
-        $stats['success_rate'] = $this->calculateSuccessRate($user);
+        $stats['success_rate']        = $this->calculateSuccessRate($user);
         $stats['on_time_return_rate'] = $this->calculateOnTimeReturnRate($user);
 
-        // Most active months
         $mostActiveMonths = $this->getMostActiveMonths($user);
 
         return view('frontend.profile.statistics', compact('user', 'stats', 'mostActiveMonths'));
     }
 
     /**
-     * Export profile data
+     * Export profile data as CSV
      */
     public function exportData()
     {
@@ -358,20 +344,18 @@ class ProfileController extends Controller
         $filename = "profile_data_{$user->id}_" . now()->format('Y-m-d') . ".csv";
 
         $headers = [
-            'Content-Type' => 'text/csv',
+            'Content-Type'        => 'text/csv',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
         $callback = function() use ($user) {
             $file = fopen('php://output', 'w');
 
-            // User info
             fputcsv($file, ['User Information']);
             fputcsv($file, ['Name', 'Email', 'Phone', 'Member Since']);
             fputcsv($file, [$user->name, $user->email, $user->phone ?? 'N/A', $user->created_at->format('Y-m-d')]);
             fputcsv($file, []);
 
-            // Transactions
             fputcsv($file, ['Transaction History']);
             fputcsv($file, ['Date', 'Item', 'Type', 'Status', 'Amount']);
 
@@ -402,70 +386,18 @@ class ProfileController extends Controller
      */
     public function badges(User $user)
     {
-        $badges = [];
-
-        $avgRating = $user->averageRating();
+        $badges            = [];
+        $avgRating         = $user->averageRating();
         $totalTransactions = Transaction::where('borrower_id', $user->id)
             ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
             ->count();
 
-        // Rating badges
-        if ($avgRating >= 4.5) {
-            $badges[] = [
-                'name' => 'Excellent Rating',
-                'icon' => '⭐⭐⭐⭐⭐',
-                'description' => 'Maintained 4.5+ average rating',
-                'earned_date' => now(),
-            ];
-        }
-
-        if ($avgRating >= 4) {
-            $badges[] = [
-                'name' => 'Trusted Member',
-                'icon' => '✓',
-                'description' => 'Maintained 4+ average rating',
-                'earned_date' => now(),
-            ];
-        }
-
-        // Transaction badges
-        if ($totalTransactions >= 10) {
-            $badges[] = [
-                'name' => 'Active Trader',
-                'icon' => '📦',
-                'description' => 'Completed 10+ transactions',
-                'earned_date' => now(),
-            ];
-        }
-
-        if ($totalTransactions >= 25) {
-            $badges[] = [
-                'name' => 'Power Trader',
-                'icon' => '⚡',
-                'description' => 'Completed 25+ transactions',
-                'earned_date' => now(),
-            ];
-        }
-
-        // Item badges
-        if ($user->items()->count() >= 5) {
-            $badges[] = [
-                'name' => 'Resource Provider',
-                'icon' => '🎁',
-                'description' => 'Listed 5+ items',
-                'earned_date' => now(),
-            ];
-        }
-
-        // On-time return badge
-        if ($this->calculateOnTimeReturnRate($user) >= 95) {
-            $badges[] = [
-                'name' => 'Reliable Returner',
-                'icon' => '⏰',
-                'description' => 'Returned 95%+ of items on time',
-                'earned_date' => now(),
-            ];
-        }
+        if ($avgRating >= 4.5)                              $badges[] = ['name' => 'Excellent Rating',  'icon' => '⭐⭐⭐⭐⭐', 'description' => 'Maintained 4.5+ average rating', 'earned_date' => now()];
+        if ($avgRating >= 4)                                $badges[] = ['name' => 'Trusted Member',    'icon' => '✓',         'description' => 'Maintained 4+ average rating',   'earned_date' => now()];
+        if ($totalTransactions >= 10)                       $badges[] = ['name' => 'Active Trader',     'icon' => '📦',        'description' => 'Completed 10+ transactions',      'earned_date' => now()];
+        if ($totalTransactions >= 25)                       $badges[] = ['name' => 'Power Trader',      'icon' => '⚡',        'description' => 'Completed 25+ transactions',      'earned_date' => now()];
+        if ($user->items()->count() >= 5)                   $badges[] = ['name' => 'Resource Provider', 'icon' => '🎁',       'description' => 'Listed 5+ items',                 'earned_date' => now()];
+        if ($this->calculateOnTimeReturnRate($user) >= 95)  $badges[] = ['name' => 'Reliable Returner', 'icon' => '⏰',       'description' => 'Returned 95%+ of items on time',  'earned_date' => now()];
 
         return view('frontend.profile.badges', compact('user', 'badges'));
     }
@@ -474,32 +406,20 @@ class ProfileController extends Controller
     // Helper Methods
     // ========================================
 
-    /**
-     * Get user's reputation level
-     */
     private function getReputationLevel(User $user): string
     {
-        $avgRating = $user->averageRating();
+        $avgRating        = $user->averageRating();
         $transactionCount = Transaction::where('borrower_id', $user->id)
             ->orWhereHas('item', fn($q) => $q->where('user_id', $user->id))
             ->count();
 
-        if ($avgRating >= 4.5 && $transactionCount >= 10) {
-            return 'Excellent';
-        } elseif ($avgRating >= 4 && $transactionCount >= 5) {
-            return 'Very Good';
-        } elseif ($avgRating >= 3.5) {
-            return 'Good';
-        } elseif ($avgRating >= 3) {
-            return 'Fair';
-        } else {
-            return 'New Member';
-        }
+        if ($avgRating >= 4.5 && $transactionCount >= 10) return 'Excellent';
+        if ($avgRating >= 4   && $transactionCount >= 5)  return 'Very Good';
+        if ($avgRating >= 3.5)                             return 'Good';
+        if ($avgRating >= 3)                               return 'Fair';
+        return 'New Member';
     }
 
-    /**
-     * Calculate success rate
-     */
     private function calculateSuccessRate(User $user): float
     {
         $total = Transaction::where('borrower_id', $user->id)
@@ -517,9 +437,6 @@ class ProfileController extends Controller
         return round(($completed / $total) * 100, 2);
     }
 
-    /**
-     * Calculate on-time return rate
-     */
     private function calculateOnTimeReturnRate(User $user): float
     {
         $completed = $user->transactionsAsBorrower()
@@ -536,9 +453,6 @@ class ProfileController extends Controller
         return round(($onTime / $completed) * 100, 2);
     }
 
-    /**
-     * Get most active months
-     */
     private function getMostActiveMonths(User $user): array
     {
         return Transaction::where('borrower_id', $user->id)

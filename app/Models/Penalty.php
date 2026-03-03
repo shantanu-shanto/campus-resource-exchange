@@ -162,7 +162,7 @@ class Penalty extends Model
     // ========================================
 
     /**
-     * Calculate penalty amount — ৳50 per day late
+     * Calculate penalty amount — ₹50 per day late
      */
     public static function calculateAmount(int $daysLate, float $ratePerDay = 50.00): float
     {
@@ -198,7 +198,7 @@ class Penalty extends Model
 
     public function getFormattedAmountAttribute(): string
     {
-        return '৳' . number_format($this->amount, 2);
+        return '₹' . number_format($this->amount, 2);
     }
 
     public function getStatusLabel(): string
