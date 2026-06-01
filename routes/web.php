@@ -7,6 +7,7 @@ use App\Http\Controllers\Frontend\DashboardController;
 use App\Http\Controllers\Frontend\ProfileController;
 use App\Http\Controllers\Frontend\MessageController;
 use App\Http\Controllers\Frontend\SearchController;
+use App\Http\Controllers\Frontend\QrHandoverController;
 
 use App\Http\Controllers\UniAdmin\UniAdminDashboardController;
 use App\Http\Controllers\UniAdmin\UniAdminUserController;
@@ -14,8 +15,6 @@ use App\Http\Controllers\UniAdmin\UniAdminItemController;
 use App\Http\Controllers\UniAdmin\UniAdminTransactionController;
 use App\Http\Controllers\UniAdmin\UniAdminPenaltyController;
 use App\Http\Controllers\UniAdmin\UniAdminReportController;
-
-
 
 use App\Http\Controllers\Auth\SuperAdminSessionController;
 use App\Http\Controllers\Auth\UniAdminSessionController;
@@ -26,7 +25,6 @@ use App\Http\Controllers\SuperAdmin\SuperAdminUserController;
 use App\Http\Controllers\SuperAdmin\SuperAdminReportController;
 
 use App\Http\Controllers\Auth\UniversityApplicationController;
-
 
 use Illuminate\Support\Facades\Route;
 
@@ -91,6 +89,13 @@ Route::get('/university/apply/submitted', [UniversityApplicationController::clas
  * Registration pending page — shown after student registers, before uni admin verifies
  */
 Route::get('/register/pending', fn() => view('auth.pending'))->name('register.pending');
+
+/**
+ * QR Handover scan page — public so the camera URL opens without auth wall
+ * Auth is enforced inside QrHandoverController::scan() after the page loads
+ */
+Route::get('/handover/scan/{token}', [QrHandoverController::class, 'scan'])
+    ->name('frontend.handover.scan');
 
 
 // ============================================================
@@ -177,6 +182,23 @@ Route::middleware(['auth', 'verified_user'])
         Route::delete('/messages/{conversation}', [MessageController::class, 'deleteConversation'])->name('messages.delete');
         Route::delete('/message/{message}', [MessageController::class, 'deleteMessage'])->name('message.delete');
         Route::patch('/messages/{conversation}/read', [MessageController::class, 'markConversationAsRead'])->name('messages.mark-read');
+
+
+        // ----------------------------------------
+        // QR HANDOVER VERIFICATION
+        // ----------------------------------------
+
+        // Owner or borrower generates the QR for a transaction
+        Route::post('/handover/{transaction}/generate', [QrHandoverController::class, 'generate'])
+            ->name('handover.generate');
+
+        // Confirm button on the scan page posts here
+        Route::post('/handover/confirm/{token}', [QrHandoverController::class, 'confirm'])
+            ->name('handover.confirm');
+
+        // Polled by the generate page JS to check if both parties have confirmed
+        Route::get('/handover/{transaction}/status', [QrHandoverController::class, 'checkStatus'])
+            ->name('handover.status');
 
 
         // ----------------------------------------
@@ -267,12 +289,9 @@ Route::get('/super-admin/login', [SuperAdminSessionController::class, 'create'])
 Route::post('/super-admin/login', [SuperAdminSessionController::class, 'store'])
     ->name('super-admin.login.store');
 
-// Logout — only accessible if authenticated (no middleware needed;
-// the controller just calls Auth::logout() regardless)
 Route::post('/super-admin/logout', [SuperAdminSessionController::class, 'destroy'])
     ->name('super-admin.logout')
     ->middleware('auth');
-
 
 Route::middleware(['auth', 'super_admin'])
     ->prefix('super-admin')
@@ -289,11 +308,9 @@ Route::middleware(['auth', 'super_admin'])
         Route::post('/universities/{university}/reject', [SuperAdminUniversityController::class, 'reject'])->name('universities.reject');
         Route::post('/universities/{university}/suspend', [SuperAdminUniversityController::class, 'suspend'])->name('universities.suspend');
         Route::delete('/universities/{university}', [SuperAdminUniversityController::class, 'destroy'])->name('universities.destroy');
-       
-        // Uni admin credential management
 
+        // Uni admin credential management
         Route::post('/universities/{university}/update-credentials', [SuperAdminUniversityController::class, 'updateCredentials'])->name('universities.update-credentials');
-        // After approving a university, super admin issues login credentials to the uni admin
         Route::post('/universities/{university}/issue-credentials', [SuperAdminUniversityController::class, 'issueCredentials'])->name('universities.issue-credentials');
         Route::post('/universities/{university}/reset-credentials', [SuperAdminUniversityController::class, 'resetCredentials'])->name('universities.reset-credentials');
 

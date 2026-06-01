@@ -78,13 +78,61 @@ class Transaction extends Model
         return $this->hasMany(Penalty::class);
     }
 
+    /**
+     * QR handover verifications for this transaction
+     * One for pickup, one for return — max two records per transaction
+     */
+    public function handoverVerifications()
+    {
+        return $this->hasMany(HandoverVerification::class);
+    }
+
+    /**
+     * The active (pending) handover verification if one exists
+     */
+    public function activeHandoverVerification()
+    {
+        return $this->hasOne(HandoverVerification::class)
+                    ->where('status', 'pending')
+                    ->where('expires_at', '>', now());
+    }
+
+    /**
+     * Get the pickup verification specifically
+     */
+    public function pickupVerification()
+    {
+        return $this->hasOne(HandoverVerification::class)
+                    ->where('type', 'pickup')
+                    ->latest();
+    }
+
+    /**
+     * Get the return verification specifically
+     */
+    public function returnVerification()
+    {
+        return $this->hasOne(HandoverVerification::class)
+                    ->where('type', 'return')
+                    ->latest();
+    }
+
     // ========================================
     // Scopes
     // ========================================
 
+    /**
+     * Updated to include the two new transitional statuses
+     * so dashboard counts and queries treat them as "in progress"
+     */
     public function scopeActive($query)
     {
-        return $query->whereIn('status', ['pending', 'active']);
+        return $query->whereIn('status', [
+            'pending',
+            'awaiting_handover',
+            'active',
+            'awaiting_return',
+        ]);
     }
 
     public function scopeCompleted($query)
@@ -199,6 +247,24 @@ class Transaction extends Model
         return $this->update(['status' => 'cancelled']);
     }
 
+    /**
+     * Owner has generated QR — waiting for both parties to scan (pickup stage)
+     * Sits between: pending → awaiting_handover → active
+     */
+    public function markAsAwaitingHandover(): bool
+    {
+        return $this->update(['status' => 'awaiting_handover']);
+    }
+
+    /**
+     * Borrower has initiated return — waiting for both parties to scan (return stage)
+     * Sits between: active → awaiting_return → completed/late
+     */
+    public function markAsAwaitingReturn(): bool
+    {
+        return $this->update(['status' => 'awaiting_return']);
+    }
+
     public function canBeRated(): bool
     {
         return in_array($this->status, ['completed', 'late']);
@@ -228,24 +294,28 @@ class Transaction extends Model
     public function getStatusLabel(): string
     {
         return match($this->status) {
-            'pending'   => 'Pending',
-            'active'    => 'Active',
-            'completed' => 'Completed',
-            'late'      => 'Late',
-            'cancelled' => 'Cancelled',
-            default     => 'Unknown',
+            'pending'           => 'Pending',
+            'awaiting_handover' => 'Awaiting Pickup Scan',
+            'active'            => 'Active',
+            'awaiting_return'   => 'Awaiting Return Scan',
+            'completed'         => 'Completed',
+            'late'              => 'Late',
+            'cancelled'         => 'Cancelled',
+            default             => 'Unknown',
         };
     }
 
     public function getStatusBadgeColor(): string
     {
         return match($this->status) {
-            'pending'   => 'warning',
-            'active'    => 'info',
-            'completed' => 'success',
-            'late'      => 'danger',
-            'cancelled' => 'secondary',
-            default     => 'secondary',
+            'pending'           => 'warning',
+            'awaiting_handover' => 'primary',
+            'active'            => 'info',
+            'awaiting_return'   => 'primary',
+            'completed'         => 'success',
+            'late'              => 'danger',
+            'cancelled'         => 'secondary',
+            default             => 'secondary',
         };
     }
 
