@@ -177,6 +177,26 @@
                                 <i class="bi bi-bar-chart"></i> Reports
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ request()->routeIs('uni-admin.support.*') ? 'active' : '' }}"
+                                href="{{ route('uni-admin.support.index') }}">
+                                <i class="bi bi-headset"></i> Support
+                                @php
+                                    try {
+                                        $openTicketsAdmin = \App\Models\SupportTicket::where('university_id', auth()->user()->university_id)
+                                            ->whereIn('status', ['open', 'in_progress'])
+                                            ->count();
+                                    } catch (\Throwable $e) {
+                                        $openTicketsAdmin = 0;
+                                    }
+                                @endphp
+                                @if ($openTicketsAdmin > 0)
+                                    <span class="badge bg-danger ms-1" style="font-size: 0.7rem;">
+                                        {{ $openTicketsAdmin }}
+                                    </span>
+                                @endif
+                            </a>
+                        </li>
                     </ul>
 
                     {{-- Uni admin profile dropdown --}}
@@ -254,6 +274,28 @@
                                 @if ($unreadCount > 0)
                                     <span class="badge bg-danger ms-1" style="font-size: 0.7rem;">
                                         {{ $unreadCount > 99 ? '99+' : $unreadCount }}
+                                    </span>
+                                @endif
+                            </a>
+                        </li>
+
+                        {{-- Support / Help --}}
+                        <li class="nav-item">
+                            <a class="nav-link {{ request()->routeIs('frontend.support.*') ? 'active' : '' }}"
+                                href="{{ route('frontend.support.index') }}">
+                                <i class="bi bi-headset"></i> Support
+                                @php
+                                    try {
+                                        $openTickets = \App\Models\SupportTicket::where('user_id', auth()->id())
+                                            ->whereIn('status', ['open', 'in_progress'])
+                                            ->count();
+                                    } catch (\Throwable $e) {
+                                        $openTickets = 0;
+                                    }
+                                @endphp
+                                @if ($openTickets > 0)
+                                    <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7rem;">
+                                        {{ $openTickets }}
                                     </span>
                                 @endif
                             </a>

@@ -90,7 +90,7 @@
                     <div class="mb-3">
                         <label class="form-label">Upload Photo</label>
                         <div class="input-group mb-3">
-                            <input type="file" name="image" class="form-control @error('image') is-invalid @enderror"
+                            <input type="file" name="item_image" class="form-control @error('image') is-invalid @enderror"
                                 id="imageInput" accept="image/*">
                             <label class="input-group-text" for="imageInput">
                                 <i class="bi bi-cloud-upload"></i>

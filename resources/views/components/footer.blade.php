@@ -75,7 +75,17 @@
                         <a href="#" style="color: rgba(255,255,255,0.85); text-decoration: none;">Terms of Service</a>
                     </li>
                     <li class="mb-2">
-                        <a href="#" style="color: rgba(255,255,255,0.85); text-decoration: none;">Report Issue</a>
+                        @auth
+                            @if(auth()->user()->role === 'user')
+                                <a href="{{ route('frontend.support.index') }}" style="color: rgba(255,255,255,0.85); text-decoration: none;">
+                                    <i class="bi bi-headset me-1"></i> Support / Help
+                                </a>
+                            @else
+                                <a href="#" style="color: rgba(255,255,255,0.85); text-decoration: none;">Report Issue</a>
+                            @endif
+                        @else
+                            <a href="#" style="color: rgba(255,255,255,0.85); text-decoration: none;">Report Issue</a>
+                        @endauth
                     </li>
                     <li class="mb-2">
                         <a href="#" style="color: rgba(255,255,255,0.85); text-decoration: none;">Community Guidelines</a>

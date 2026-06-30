@@ -8,6 +8,7 @@ use App\Http\Controllers\Frontend\ProfileController;
 use App\Http\Controllers\Frontend\MessageController;
 use App\Http\Controllers\Frontend\SearchController;
 use App\Http\Controllers\Frontend\QrHandoverController;
+use App\Http\Controllers\Frontend\SupportTicketController;
 
 use App\Http\Controllers\UniAdmin\UniAdminDashboardController;
 use App\Http\Controllers\UniAdmin\UniAdminUserController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\UniAdmin\UniAdminItemController;
 use App\Http\Controllers\UniAdmin\UniAdminTransactionController;
 use App\Http\Controllers\UniAdmin\UniAdminPenaltyController;
 use App\Http\Controllers\UniAdmin\UniAdminReportController;
+use App\Http\Controllers\UniAdmin\UniAdminSupportController;
 
 use App\Http\Controllers\Auth\SuperAdminSessionController;
 use App\Http\Controllers\Auth\UniAdminSessionController;
@@ -171,6 +173,36 @@ Route::middleware(['auth', 'verified_user'])
         Route::get('/given-ratings/{user}', [RatingController::class, 'userGivenRatings'])->name('ratings.given');
 
 
+        Route::prefix('support')->name('support.')->group(function () {
+ 
+            // List user's own tickets
+            Route::get('/', [SupportTicketController::class, 'index'])
+                ->name('index');
+        
+            // Raise a new ticket
+            Route::get('/create', [SupportTicketController::class, 'create'])
+                ->name('create');
+        
+            Route::post('/', [SupportTicketController::class, 'store'])
+                ->name('store');
+        
+            // View a ticket thread
+            Route::get('/{ticket}', [SupportTicketController::class, 'show'])
+                ->name('show');
+        
+            // Add a follow-up reply
+            Route::post('/{ticket}/reply', [SupportTicketController::class, 'reply'])
+                ->name('reply');
+        
+            // User closes resolved ticket
+            Route::post('/{ticket}/close', [SupportTicketController::class, 'close'])
+                ->name('close');
+        
+            // User reopens a resolved ticket
+            Route::post('/{ticket}/reopen', [SupportTicketController::class, 'reopen'])
+                ->name('reopen');
+        });
+
         // ----------------------------------------
         // MESSAGES
         // ----------------------------------------
@@ -263,7 +295,34 @@ Route::middleware(['auth', 'uni_admin'])
         // Transaction oversight (only within their university)
         Route::get('/transactions', [UniAdminTransactionController::class, 'index'])->name('transactions.index');
         Route::get('/transactions/{transaction}', [UniAdminTransactionController::class, 'show'])->name('transactions.show');
+        
 
+        Route::prefix('support')->name('support.')->group(function () {
+ 
+            // List all tickets for this university (with filters)
+            Route::get('/', [UniAdminSupportController::class, 'index'])
+                ->name('index');
+        
+            // View a single ticket thread
+            Route::get('/{ticket}', [UniAdminSupportController::class, 'show'])
+                ->name('show');
+        
+            // Admin replies to the ticket
+            Route::post('/{ticket}/reply', [UniAdminSupportController::class, 'reply'])
+                ->name('reply');
+        
+            // Admin marks ticket resolved
+            Route::post('/{ticket}/resolve', [UniAdminSupportController::class, 'resolve'])
+                ->name('resolve');
+        
+            // Admin force-closes a ticket
+            Route::post('/{ticket}/close', [UniAdminSupportController::class, 'close'])
+                ->name('close');
+        
+            // AJAX: ticket counts for dashboard widget
+            Route::get('/api/stats', [UniAdminSupportController::class, 'stats'])
+                ->name('stats');
+        });
         // Penalty management (only within their university)
         Route::get('/penalties', [UniAdminPenaltyController::class, 'index'])->name('penalties.index');
         Route::get('/penalties/{penalty}', [UniAdminPenaltyController::class, 'show'])->name('penalties.show');
