@@ -303,6 +303,10 @@ Route::middleware(['auth', 'uni_admin'])
             Route::get('/', [UniAdminSupportController::class, 'index'])
                 ->name('index');
         
+            // AJAX: ticket counts for dashboard widget
+            Route::get('/api/stats', [UniAdminSupportController::class, 'stats'])
+                ->name('stats');
+
             // View a single ticket thread
             Route::get('/{ticket}', [UniAdminSupportController::class, 'show'])
                 ->name('show');
@@ -318,10 +322,6 @@ Route::middleware(['auth', 'uni_admin'])
             // Admin force-closes a ticket
             Route::post('/{ticket}/close', [UniAdminSupportController::class, 'close'])
                 ->name('close');
-        
-            // AJAX: ticket counts for dashboard widget
-            Route::get('/api/stats', [UniAdminSupportController::class, 'stats'])
-                ->name('stats');
         });
         // Penalty management (only within their university)
         Route::get('/penalties', [UniAdminPenaltyController::class, 'index'])->name('penalties.index');

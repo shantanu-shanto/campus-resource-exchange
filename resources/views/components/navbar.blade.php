@@ -182,13 +182,9 @@
                                 href="{{ route('uni-admin.support.index') }}">
                                 <i class="bi bi-headset"></i> Support
                                 @php
-                                    try {
-                                        $openTicketsAdmin = \App\Models\SupportTicket::where('university_id', auth()->user()->university_id)
-                                            ->whereIn('status', ['open', 'in_progress'])
-                                            ->count();
-                                    } catch (\Throwable $e) {
-                                        $openTicketsAdmin = 0;
-                                    }
+                                    $openTicketsAdmin = \App\Models\SupportTicket::where('university_id', auth()->user()->university_id)
+                                        ->whereIn('status', ['open', 'in_progress'])
+                                        ->count();
                                 @endphp
                                 @if ($openTicketsAdmin > 0)
                                     <span class="badge bg-danger ms-1" style="font-size: 0.7rem;">
@@ -285,13 +281,9 @@
                                 href="{{ route('frontend.support.index') }}">
                                 <i class="bi bi-headset"></i> Support
                                 @php
-                                    try {
-                                        $openTickets = \App\Models\SupportTicket::where('user_id', auth()->id())
-                                            ->whereIn('status', ['open', 'in_progress'])
-                                            ->count();
-                                    } catch (\Throwable $e) {
-                                        $openTickets = 0;
-                                    }
+                                    $openTickets = \App\Models\SupportTicket::where('user_id', auth()->id())
+                                        ->whereIn('status', ['open', 'in_progress'])
+                                        ->count();
                                 @endphp
                                 @if ($openTickets > 0)
                                     <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7rem;">

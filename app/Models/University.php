@@ -262,4 +262,14 @@ class University extends Model
     {
         return "{$this->city}, {$this->state}, {$this->country}";
     }
+
+    // ----------------------------------------
+    // SUPPORT TICKETS
+    // ----------------------------------------
+
+    public function supportTickets()
+    {
+        return $this->hasMany(\App\Models\SupportTicket::class);
+    }
+
 }

@@ -17,14 +17,14 @@
                 {{ $ticket->subject }}
             </h1>
             <div class="d-flex gap-3 align-items-center" style="flex-wrap: wrap;">
-                <span class="badge bg-{{ ($ticket->getStatusBadgeColor)() }}">
-                    {{ ($ticket->getStatusLabel)() }}
+                <span class="badge bg-{{ $ticket->getStatusBadgeColor() }}">
+                    {{ $ticket->getStatusLabel() }}
                 </span>
-                <span class="badge bg-{{ ($ticket->getPriorityBadgeColor)() }}">
-                    <i class="bi bi-flag me-1"></i>{{ ($ticket->getPriorityLabel)() }} Priority
+                <span class="badge bg-{{ $ticket->getPriorityBadgeColor() }}">
+                    <i class="bi bi-flag me-1"></i>{{ $ticket->getPriorityLabel() }} Priority
                 </span>
                 <small class="text-muted">
-                    <i class="bi bi-tag me-1"></i>{{ ($ticket->getCategoryLabel)() }}
+                    <i class="bi bi-tag me-1"></i>{{ $ticket->getCategoryLabel() }}
                 </small>
                 <small class="text-muted">
                     <i class="bi bi-hash me-1"></i>Ticket #{{ $ticket->id }}
@@ -37,7 +37,7 @@
 
         {{-- Actions --}}
         <div class="d-flex gap-2" style="flex-shrink: 0;">
-            @if (($ticket->isResolved)())
+            @if ($ticket->isResolved())
                 {{-- User can close or reopen --}}
                 <form method="POST" action="{{ route('frontend.support.close', $ticket->id) }}">
                     @csrf
@@ -51,7 +51,7 @@
                         <i class="bi bi-arrow-counterclockwise me-1"></i> Reopen
                     </button>
                 </form>
-            @elseif (($ticket->isClosed)())
+            @elseif ($ticket->isClosed())
                 <span style="color: #6c757d; font-size: 0.85rem; padding: 6px 0;">
                     <i class="bi bi-lock me-1"></i> This ticket is closed
                 </span>
@@ -65,7 +65,7 @@
     <div class="col-lg-8">
 
         {{-- Resolved banner --}}
-        @if (($ticket->isResolved)())
+        @if ($ticket->isResolved())
             <div class="alert alert-success mb-4" style="border-left: 4px solid #28a745;">
                 <i class="bi bi-check-circle-fill me-2"></i>
                 <strong>Resolved</strong> by {{ $ticket->resolver?->name ?? 'Admin' }}
@@ -94,7 +94,7 @@
 
         {{-- ── Reply thread ─────────────────────────────────── --}}
         @foreach ($ticket->replies as $reply)
-            @php $isAdmin = ($reply->isFromAdmin)(); @endphp
+            @php $isAdmin = $reply->isFromAdmin(); @endphp
 
             <div class="card mb-3"
                  style="{{ $isAdmin ? 'border-left: 3px solid var(--primary-blue);' : 'border-left: 3px solid #dee2e6;' }}">
@@ -117,7 +117,7 @@
         @endforeach
 
         {{-- ── Reply form ───────────────────────────────────── --}}
-        @if (!($ticket->isClosed)())
+        @if (!$ticket->isClosed())
             <div class="card mt-4">
                 <div class="card-header">
                     <i class="bi bi-reply me-2"></i> Add a Reply
@@ -140,7 +140,7 @@
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <small class="text-muted">
-                                @if (($ticket->isResolved)())
+                                @if ($ticket->isResolved())
                                     <i class="bi bi-info-circle me-1"></i>
                                     Replying will reopen this ticket.
                                 @endif
@@ -175,22 +175,22 @@
                     <tr>
                         <td style="color: #888; width: 40%;">Status</td>
                         <td>
-                            <span class="badge bg-{{ ($ticket->getStatusBadgeColor)() }}">
-                                {{ ($ticket->getStatusLabel)() }}
+                            <span class="badge bg-{{ $ticket->getStatusBadgeColor() }}">
+                                {{ $ticket->getStatusLabel() }}
                             </span>
                         </td>
                     </tr>
                     <tr>
                         <td style="color: #888;">Priority</td>
                         <td>
-                            <span class="badge bg-{{ ($ticket->getPriorityBadgeColor)() }}">
-                                {{ ($ticket->getPriorityLabel)() }}
+                            <span class="badge bg-{{ $ticket->getPriorityBadgeColor() }}">
+                                {{ $ticket->getPriorityLabel() }}
                             </span>
                         </td>
                     </tr>
                     <tr>
                         <td style="color: #888;">Category</td>
-                        <td style="color: #333; font-weight: 600;">{{ ($ticket->getCategoryLabel)() }}</td>
+                        <td style="color: #333; font-weight: 600;">{{ $ticket->getCategoryLabel() }}</td>
                     </tr>
                     <tr>
                         <td style="color: #888;">Opened</td>

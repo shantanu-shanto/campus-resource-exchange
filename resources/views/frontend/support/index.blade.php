@@ -84,7 +84,7 @@
 
                         <div class="d-flex gap-3 align-items-center" style="flex-wrap: wrap;">
                             <small class="text-muted">
-                                <i class="bi bi-tag me-1"></i>{{ ($ticket->getCategoryLabel)() }}
+                                <i class="bi bi-tag me-1"></i>{{ $ticket->getCategoryLabel() }}
                             </small>
                             <small class="text-muted">
                                 <i class="bi bi-clock me-1"></i>{{ $ticket->time_display }}
@@ -101,8 +101,8 @@
 
                     {{-- Right: status badge + action --}}
                     <div class="d-flex align-items-center gap-2" style="flex-shrink: 0;">
-                        <span class="badge bg-{{ ($ticket->getStatusBadgeColor)() }}">
-                            {{ ($ticket->getStatusLabel)() }}
+                        <span class="badge bg-{{ $ticket->getStatusBadgeColor() }}">
+                            {{ $ticket->getStatusLabel() }}
                         </span>
                         <a href="{{ route('frontend.support.show', $ticket->id) }}"
                            class="btn btn-sm btn-outline-primary">
@@ -112,7 +112,7 @@
                 </div>
 
                 {{-- Resolved notice --}}
-                @if (($ticket->isResolved)())
+                @if ($ticket->isResolved())
                     <div class="mt-2" style="background: #d4edda; border-radius: 6px; padding: 8px 12px; display: inline-flex; align-items: center; gap: 8px;">
                         <i class="bi bi-check-circle-fill" style="color: #155724;"></i>
                         <small style="color: #155724; font-weight: 600;">

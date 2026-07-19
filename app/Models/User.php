@@ -324,4 +324,19 @@ class User extends Authenticatable
             default    => 'secondary',
         };
     }
+
+    // ----------------------------------------
+    // SUPPORT TICKETS
+    // ----------------------------------------
+
+    public function supportTickets()
+    {
+        return $this->hasMany(\App\Models\SupportTicket::class);
+    }
+
+    public function ticketReplies()
+    {
+        return $this->hasMany(\App\Models\TicketReply::class);
+    }
+
 }
