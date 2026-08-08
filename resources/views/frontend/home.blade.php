@@ -67,8 +67,15 @@
     </div>
 </div>
 
+{{-- ── Recommended For You ─────────────────────────────────── --}}
+@include('frontend.items.partials._recommendation-section', [
+    'items' => $recommendedItems,
+    'title' => 'Recommended For You',
+    'icon'  => 'bi-stars',
+])
+
 {{-- ── Search & Filter Bar ──────────────────────────────────── --}}
-<div class="card mb-4">
+<div class="card mb-4" style="margin-top: 32px;">
     <div class="card-body py-3">
         <form method="GET" action="{{ route('home') }}" class="row g-2 align-items-center">
             <div class="col-md-6">

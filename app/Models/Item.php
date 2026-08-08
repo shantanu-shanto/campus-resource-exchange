@@ -14,6 +14,7 @@ class Item extends Model
         'university_id',
         'title',
         'description',
+        'category',
         'availability_mode', // share | lend | sell | both
         'price',
         'lending_duration_days',

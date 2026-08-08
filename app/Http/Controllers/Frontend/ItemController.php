@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\Transaction;
 use App\Models\Penalty;
+use App\Services\RecommendationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -86,7 +87,11 @@ class ItemController extends Controller
             'unread_messages'  => $user->unreadMessageCount(),
         ];
 
-        return view('frontend.home', compact('items', 'userStats'));
+        // "Recommended for you" — weighted by categories the user already owns
+        // or has borrowed, falling back to trending campus categories for new users
+        $recommendedItems = app(RecommendationService::class)->forUser($user);
+
+        return view('frontend.home', compact('items', 'userStats', 'recommendedItems'));
     }
 
     /**
@@ -112,13 +117,17 @@ class ItemController extends Controller
             && !Penalty::borrowerHasPending(Auth::user())
             && $item->status === 'available';
 
+        // "Similar items" — same category/university, compatible mode, price band
+        $similarItems = app(RecommendationService::class)->similarItems($item);
+
         return view('frontend.items.show', compact(
             'item',
             'avgRating',
             'totalBorrowed',
             'isOwner',
             'canManage',
-            'canRequest'
+            'canRequest',
+            'similarItems'
         ));
     }
 

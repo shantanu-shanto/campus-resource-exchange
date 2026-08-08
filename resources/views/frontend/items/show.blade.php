@@ -239,6 +239,13 @@
     </div>
 </div>
 
+{{-- ── Similar Items ────────────────────────────────────────── --}}
+@include('frontend.items.partials._recommendation-section', [
+    'items' => $similarItems,
+    'title' => 'Similar Items',
+    'icon'  => 'bi-grid',
+])
+
 <!-- Modals -->
 @auth
     @if (auth()->id() !== $item->user_id && $item->status === 'available')
