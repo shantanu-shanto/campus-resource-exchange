@@ -86,11 +86,11 @@
                                     <td>
                                         @if ($transaction->due_date)
                                             @php
-                                                $daysLeft = $transaction->due_date->diffInDays(now());
-                                                $isOverdue = $daysLeft < 0;
+                                                $daysLeft = $transaction->due_date ? $transaction->due_date->diffInDays(now()) : null;
+                                                $isOverdue = $daysLeft !== null && $daysLeft < 0;
                                             @endphp
                                             <span class="{{ $isOverdue ? 'text-danger' : '' }}">
-                                                {{ $transaction->due_date->format('M d, Y') }}
+                                                {{ $transaction->due_date ? $transaction->due_date->format('M d, Y') : 'N/A' }}
                                                 @if ($isOverdue)
                                                     <small class="text-danger">({{ abs($daysLeft) }} days overdue)</small>
                                                 @elseif ($daysLeft <= 3)
@@ -187,8 +187,8 @@
                                     $otherParty = auth()->id() === $transaction->item->user_id 
                                         ? $transaction->borrower 
                                         : $transaction->item->owner;
-                                    $daysLeft = $transaction->due_date->diffInDays(now());
-                                    $isOverdue = $daysLeft < 0;
+                                    $daysLeft = $transaction->due_date ? $transaction->due_date->diffInDays(now()) : null;
+                                    $isOverdue = $daysLeft !== null && $daysLeft < 0;
                                 @endphp
                                 <tr class="{{ $isOverdue ? 'table-danger' : '' }}">
                                     <td>{{ Str::limit($transaction->item->title, 25) }}</td>
@@ -198,7 +198,7 @@
                                             {{ ucfirst($transaction->type) }}
                                         </span>
                                     </td>
-                                    <td>{{ $transaction->due_date->format('M d, Y') }}</td>
+                                    <td>{{ $transaction->due_date ? $transaction->due_date->format('M d, Y') : 'N/A' }}</td>
                                     <td>
                                         @if ($isOverdue)
                                             <span class="badge bg-danger">{{ abs($daysLeft) }} days overdue</span>
@@ -310,7 +310,7 @@
                                     $otherParty = auth()->id() === $transaction->item->user_id 
                                         ? $transaction->borrower 
                                         : $transaction->item->owner;
-                                    $daysLate = now()->diffInDays($transaction->due_date);
+                                    $daysLate = $transaction->due_date ? now()->diffInDays($transaction->due_date) : 0;
                                 @endphp
                                 <tr>
                                     <td>{{ Str::limit($transaction->item->title, 25) }}</td>
@@ -320,7 +320,7 @@
                                             {{ ucfirst($transaction->type) }}
                                         </span>
                                     </td>
-                                    <td>{{ $transaction->due_date->format('M d, Y') }}</td>
+                                    <td>{{ $transaction->due_date ? $transaction->due_date->format('M d, Y') : 'N/A' }}</td>
                                     <td>
                                         <span class="badge bg-danger">{{ $daysLate }} days late</span>
                                     </td>
