@@ -82,9 +82,12 @@ Route::get('/user/{user}/items', [ProfileController::class, 'items'])->name('fro
 
 /**
  * University application form (anyone can apply to register their university)
+ * Rate limited: 3 submissions per hour to prevent spam applications.
  */
 Route::get('/university/apply', [UniversityApplicationController::class, 'create'])->name('university.apply');
-Route::post('/university/apply', [UniversityApplicationController::class, 'store'])->name('university.apply.store');
+Route::post('/university/apply', [UniversityApplicationController::class, 'store'])
+    ->middleware('throttle:3,60')
+    ->name('university.apply.store');
 Route::get('/university/apply/submitted', [UniversityApplicationController::class, 'submitted'])->name('university.apply.submitted');
 
 /**
@@ -102,9 +105,10 @@ Route::get('/handover/scan/{token}', [QrHandoverController::class, 'scan'])
 
 // ============================================================
 // PUBLIC API ENDPOINTS
+// Rate limited: 30 requests per minute to prevent scraping
 // ============================================================
 
-Route::prefix('api')->name('api.public.')->group(function () {
+Route::prefix('api')->name('api.public.')->middleware('throttle:30,1')->group(function () {
     Route::get('/search/suggestions', [SearchController::class, 'suggestions'])->name('search.suggestions');
     Route::get('/search/filters', [SearchController::class, 'getFilters'])->name('search.filters');
 
@@ -129,12 +133,16 @@ Route::middleware(['auth', 'verified_user'])
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
         Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
         Route::get('/profile/password', [ProfileController::class, 'editPassword'])->name('profile.password');
-        Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
+        Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])
+            ->middleware('throttle:5,1')  // Password changes: 5 per minute
+            ->name('profile.password.update');
         Route::get('/profile/preferences', [ProfileController::class, 'preferences'])->name('profile.preferences');
         Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences.update');
         Route::get('/profile/active-items', [ProfileController::class, 'activeItems'])->name('profile.active-items');
         Route::delete('/profile', [ProfileController::class, 'confirmDelete'])->name('profile.delete');
-        Route::get('/profile/export-data', [ProfileController::class, 'exportData'])->name('profile.export');
+        Route::get('/profile/export-data', [ProfileController::class, 'exportData'])
+            ->middleware('throttle:3,60')  // Data export: 3 per hour (expensive operation)
+            ->name('profile.export');
 
 
         // ----------------------------------------
@@ -144,8 +152,10 @@ Route::middleware(['auth', 'verified_user'])
         Route::resource('items', ItemController::class)->except(['index', 'show']);
         Route::get('/my-items', [ItemController::class, 'myItems'])->name('items.my');
 
-        // Item transaction actions
-        Route::post('/items/{item}/request', [ItemController::class, 'requestTransaction'])->name('items.request');
+        // Item transaction actions — rate limited to prevent request flooding
+        Route::post('/items/{item}/request', [ItemController::class, 'requestTransaction'])
+            ->middleware('throttle:10,1')
+            ->name('items.request');
         Route::post('/items/{item}/cancel-reservation', [ItemController::class, 'cancelReservation'])->name('items.cancel');
         Route::post('/items/{item}/mark-borrowed/{transaction}', [ItemController::class, 'markAsBorrowed'])->name('items.borrowed');
         Route::post('/items/{item}/mark-returned/{transaction}', [ItemController::class, 'markAsReturned'])->name('items.returned');
@@ -159,7 +169,9 @@ Route::middleware(['auth', 'verified_user'])
         Route::resource('transactions', TransactionController::class)->only(['index', 'show', 'update']);
         Route::get('/transactions/{transaction}/penalties', [TransactionController::class, 'penalties'])->name('transactions.penalties');
         Route::post('/penalties/{penalty}/pay', [TransactionController::class, 'payPenalty'])->name('penalties.pay');
-        Route::post('/penalties/{penalty}/waiver', [TransactionController::class, 'requestWaiver'])->name('penalties.waiver');
+        Route::post('/penalties/{penalty}/waiver', [TransactionController::class, 'requestWaiver'])
+            ->middleware('throttle:3,60')  // Waiver requests: 3 per hour to prevent spam
+            ->name('penalties.waiver');
         Route::get('/borrowing-history', [TransactionController::class, 'borrowingHistory'])->name('transactions.borrowing-history');
         Route::get('/lending-history', [TransactionController::class, 'lendingHistory'])->name('transactions.lending-history');
 
@@ -173,31 +185,37 @@ Route::middleware(['auth', 'verified_user'])
         Route::get('/given-ratings/{user}', [RatingController::class, 'userGivenRatings'])->name('ratings.given');
 
 
+        // ----------------------------------------
+        // SUPPORT TICKETS
+        // ----------------------------------------
+
         Route::prefix('support')->name('support.')->group(function () {
- 
+
             // List user's own tickets
             Route::get('/', [SupportTicketController::class, 'index'])
                 ->name('index');
-        
+
             // Raise a new ticket
             Route::get('/create', [SupportTicketController::class, 'create'])
                 ->name('create');
-        
+
             Route::post('/', [SupportTicketController::class, 'store'])
+                ->middleware('throttle:5,60')  // Ticket creation: 5 per hour
                 ->name('store');
-        
+
             // View a ticket thread
             Route::get('/{ticket}', [SupportTicketController::class, 'show'])
                 ->name('show');
-        
+
             // Add a follow-up reply
             Route::post('/{ticket}/reply', [SupportTicketController::class, 'reply'])
+                ->middleware('throttle:20,1')  // Replies: 20 per minute
                 ->name('reply');
-        
+
             // User closes resolved ticket
             Route::post('/{ticket}/close', [SupportTicketController::class, 'close'])
                 ->name('close');
-        
+
             // User reopens a resolved ticket
             Route::post('/{ticket}/reopen', [SupportTicketController::class, 'reopen'])
                 ->name('reopen');
@@ -209,8 +227,12 @@ Route::middleware(['auth', 'verified_user'])
 
         Route::get('/messages', [MessageController::class, 'index'])->name('messages.index');
         Route::get('/messages/{conversation}', [MessageController::class, 'show'])->name('messages.show');
-        Route::post('/messages/{conversation}/send', [MessageController::class, 'sendMessage'])->name('messages.send');
-        Route::post('/messages/start/{user}', [MessageController::class, 'startConversation'])->name('messages.start');
+        Route::post('/messages/{conversation}/send', [MessageController::class, 'sendMessage'])
+            ->middleware('throttle:30,1')  // Message sending: 30 per minute
+            ->name('messages.send');
+        Route::post('/messages/start/{user}', [MessageController::class, 'startConversation'])
+            ->middleware('throttle:10,1')  // New conversations: 10 per minute
+            ->name('messages.start');
         Route::delete('/messages/{conversation}', [MessageController::class, 'deleteConversation'])->name('messages.delete');
         Route::delete('/message/{message}', [MessageController::class, 'deleteMessage'])->name('message.delete');
         Route::patch('/messages/{conversation}/read', [MessageController::class, 'markConversationAsRead'])->name('messages.mark-read');
@@ -222,10 +244,12 @@ Route::middleware(['auth', 'verified_user'])
 
         // Owner or borrower generates the QR for a transaction
         Route::post('/handover/{transaction}/generate', [QrHandoverController::class, 'generate'])
+            ->middleware('throttle:10,1')  // QR generation: 10 per minute
             ->name('handover.generate');
 
         // Confirm button on the scan page posts here
         Route::post('/handover/confirm/{token}', [QrHandoverController::class, 'confirm'])
+            ->middleware('throttle:10,1')  // QR confirmation: 10 per minute
             ->name('handover.confirm');
 
         // Polled by the generate page JS to check if both parties have confirmed
@@ -244,9 +268,10 @@ Route::middleware(['auth', 'verified_user'])
 
         // ----------------------------------------
         // AJAX / API (authenticated)
+        // Rate limited: 60 per minute for authenticated API endpoints
         // ----------------------------------------
 
-        Route::prefix('api')->name('api.')->group(function () {
+        Route::prefix('api')->name('api.')->middleware('throttle:60,1')->group(function () {
             Route::get('/messages/unread-count', [MessageController::class, 'unreadCount'])->name('messages.unread');
             Route::get('/messages/recent', [MessageController::class, 'recentConversations'])->name('messages.recent');
             Route::get('/messages/{conversation}/messages', [MessageController::class, 'getMessages'])->name('messages.get');
@@ -261,10 +286,14 @@ Route::middleware(['auth', 'verified_user'])
 // UNIVERSITY ADMIN ROUTES (auth + uni_admin role)
 // ============================================================
 
+/**
+ * Uni admin login — rate limited: 5 attempts per minute to prevent brute force.
+ */
 Route::get('/uni-admin/login', [UniAdminSessionController::class, 'create'])
     ->name('uni-admin.login');
 
 Route::post('/uni-admin/login', [UniAdminSessionController::class, 'store'])
+    ->middleware('throttle:5,1')
     ->name('uni-admin.login.store');
 
 Route::post('/uni-admin/logout', [UniAdminSessionController::class, 'destroy'])
@@ -295,14 +324,14 @@ Route::middleware(['auth', 'uni_admin'])
         // Transaction oversight (only within their university)
         Route::get('/transactions', [UniAdminTransactionController::class, 'index'])->name('transactions.index');
         Route::get('/transactions/{transaction}', [UniAdminTransactionController::class, 'show'])->name('transactions.show');
-        
+
 
         Route::prefix('support')->name('support.')->group(function () {
- 
+
             // List all tickets for this university (with filters)
             Route::get('/', [UniAdminSupportController::class, 'index'])
                 ->name('index');
-        
+
             // AJAX: ticket counts for dashboard widget
             Route::get('/api/stats', [UniAdminSupportController::class, 'stats'])
                 ->name('stats');
@@ -310,19 +339,20 @@ Route::middleware(['auth', 'uni_admin'])
             // View a single ticket thread
             Route::get('/{ticket}', [UniAdminSupportController::class, 'show'])
                 ->name('show');
-        
+
             // Admin replies to the ticket
             Route::post('/{ticket}/reply', [UniAdminSupportController::class, 'reply'])
                 ->name('reply');
-        
+
             // Admin marks ticket resolved
             Route::post('/{ticket}/resolve', [UniAdminSupportController::class, 'resolve'])
                 ->name('resolve');
-        
+
             // Admin force-closes a ticket
             Route::post('/{ticket}/close', [UniAdminSupportController::class, 'close'])
                 ->name('close');
         });
+
         // Penalty management (only within their university)
         Route::get('/penalties', [UniAdminPenaltyController::class, 'index'])->name('penalties.index');
         Route::get('/penalties/{penalty}', [UniAdminPenaltyController::class, 'show'])->name('penalties.show');
@@ -334,7 +364,9 @@ Route::middleware(['auth', 'uni_admin'])
         Route::get('/reports/users', [UniAdminReportController::class, 'userReport'])->name('reports.users');
         Route::get('/reports/transactions', [UniAdminReportController::class, 'transactionReport'])->name('reports.transactions');
         Route::get('/reports/penalties', [UniAdminReportController::class, 'penaltyReport'])->name('reports.penalties');
-        Route::post('/reports/export', [UniAdminReportController::class, 'export'])->name('reports.export');
+        Route::post('/reports/export', [UniAdminReportController::class, 'export'])
+            ->middleware('throttle:5,60')  // Report export: 5 per hour (expensive)
+            ->name('reports.export');
     });
 
 
@@ -342,10 +374,14 @@ Route::middleware(['auth', 'uni_admin'])
 // SUPER ADMIN ROUTES (auth + super_admin role)
 // ============================================================
 
+/**
+ * Super admin login — rate limited: 5 attempts per minute to prevent brute force.
+ */
 Route::get('/super-admin/login', [SuperAdminSessionController::class, 'create'])
     ->name('super-admin.login');
 
 Route::post('/super-admin/login', [SuperAdminSessionController::class, 'store'])
+    ->middleware('throttle:5,1')
     ->name('super-admin.login.store');
 
 Route::post('/super-admin/logout', [SuperAdminSessionController::class, 'destroy'])
@@ -368,10 +404,16 @@ Route::middleware(['auth', 'super_admin'])
         Route::post('/universities/{university}/suspend', [SuperAdminUniversityController::class, 'suspend'])->name('universities.suspend');
         Route::delete('/universities/{university}', [SuperAdminUniversityController::class, 'destroy'])->name('universities.destroy');
 
-        // Uni admin credential management
-        Route::post('/universities/{university}/update-credentials', [SuperAdminUniversityController::class, 'updateCredentials'])->name('universities.update-credentials');
-        Route::post('/universities/{university}/issue-credentials', [SuperAdminUniversityController::class, 'issueCredentials'])->name('universities.issue-credentials');
-        Route::post('/universities/{university}/reset-credentials', [SuperAdminUniversityController::class, 'resetCredentials'])->name('universities.reset-credentials');
+        // Uni admin credential management — rate limited (sensitive operations)
+        Route::post('/universities/{university}/update-credentials', [SuperAdminUniversityController::class, 'updateCredentials'])
+            ->middleware('throttle:10,1')
+            ->name('universities.update-credentials');
+        Route::post('/universities/{university}/issue-credentials', [SuperAdminUniversityController::class, 'issueCredentials'])
+            ->middleware('throttle:10,1')
+            ->name('universities.issue-credentials');
+        Route::post('/universities/{university}/reset-credentials', [SuperAdminUniversityController::class, 'resetCredentials'])
+            ->middleware('throttle:10,1')
+            ->name('universities.reset-credentials');
 
         // Global user oversight (all universities)
         Route::get('/users', [SuperAdminUserController::class, 'index'])->name('users.index');
@@ -384,10 +426,12 @@ Route::middleware(['auth', 'super_admin'])
         Route::get('/reports/universities', [SuperAdminReportController::class, 'universityReport'])->name('reports.universities');
         Route::get('/reports/platform-overview', [SuperAdminReportController::class, 'platformOverview'])->name('reports.platform-overview');
         Route::get('/reports/user-growth', [SuperAdminReportController::class, 'userGrowth'])->name('reports.user-growth');
-        Route::post('/reports/export', [SuperAdminReportController::class, 'export'])->name('reports.export');
+        Route::post('/reports/export', [SuperAdminReportController::class, 'export'])
+            ->middleware('throttle:5,60')  // Report export: 5 per hour (expensive)
+            ->name('reports.export');
 
         // AJAX
-        Route::prefix('api')->name('api.')->group(function () {
+        Route::prefix('api')->name('api.')->middleware('throttle:60,1')->group(function () {
             Route::get('/quick-stats', [SuperAdminDashboardController::class, 'quickStats'])->name('quick-stats');
             Route::get('/universities/pending-count', [SuperAdminUniversityController::class, 'pendingCount'])->name('universities.pending-count');
         });
